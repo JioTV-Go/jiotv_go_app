@@ -1,0 +1,85 @@
+name: 🚀 Generate and Upload Pre-Release APK
+
+env:
+  main_project_module: app
+  app_name: JGO-Server
+
+on:
+  push:
+    branches:
+      - pre-release
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - "**.md"
+      
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      # Set Repository Name As Env Variable
+      - name: 📦 Set repository name as env variable
+        run: echo "repository_name=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')" >> $GITHUB_ENV
+
+      # Set date today
+      - name: 📅 Set var
+        run: echo "date_today=$(date +%Y%m%d)" >> $GITHUB_ENV
+
+      # Extract versionName from build.gradle
+      - name: 🔍 Extract version name from build.gradle
+        run: |
+          version_name=$(grep "versionName" ${{ env.main_project_module }}/build.gradle | awk '{print $2}' | tr -d '"')
+          echo "version_name=$version_name" >> $GITHUB_ENV
+
+      - name: ☕ Set Up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: 🔧 Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      # Run Build Project
+      - name: 🏗️ Build gradle project
+        run: ./gradlew build
+
+      # Create APK Release
+      - name: 📲 Build apk release project (APK) - ${{ env.main_project_module }} module
+        run: ./gradlew assembleRelease
+
+      # Sign APK Release
+      - name: ✍️ Sign app APK Release
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: ${{ env.main_project_module }}/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+        
+      # Rename APK file
+      - name: 📝 Rename APK
+        run: mv ${{ env.main_project_module }}/build/outputs/apk/release/app-release-unsigned-signed.apk ${{ env.main_project_module }}/build/outputs/apk/release/${{ env.app_name }}-v${{ env.version_name }}-pre-release.apk
+      
+      # GitHub release
+      - name: 🚀 Upload APK to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ env.version_name }}"
+          name: "v${{ env.version_name }}"
+          files: ${{ env.main_project_module }}/build/outputs/apk/release/${{ env.app_name }}-v${{ env.version_name }}-pre-release.apk  # New file path
+          generate_release_notes: true
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
