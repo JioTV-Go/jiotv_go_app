@@ -81,7 +81,8 @@ import java.io.File
 @Composable
 fun SettingsScreen(
     activity: ComponentActivity,
-    checkForUpdates: () -> Unit
+    checkForUpdates: () -> Unit,
+    requestOverlayPermission: () -> Unit
 ) {
     // Initialize SkySharedPref
     val jtvConfigurationManager = JTVConfigurationManager.getInstance(activity)
@@ -166,6 +167,10 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(isSwitchOnForAutoStartForeground) {
+        if (isSwitchOnForAutoStartForeground){
+            requestOverlayPermission()
+            return@LaunchedEffect
+        }
         preferenceManager.myPrefs.autoStartOnBootForeground = isSwitchOnForAutoStartForeground
         applySettings()
     }

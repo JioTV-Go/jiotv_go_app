@@ -127,8 +127,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        requestOverlayPermission()
         requestNotificationPermissions()
 
         selectedBinaryName = "JTV-GO SERVER"
@@ -216,7 +214,8 @@ class MainActivity : ComponentActivity() {
 
                             "Settings" -> SettingsScreen(
                                 activity = this@MainActivity,
-                                checkForUpdates = { checkForUpdates() })
+                                checkForUpdates = { checkForUpdates() },
+                                requestOverlayPermission = { requestOverlayPermission() })
 
                             "Info" -> InfoScreen(context = this@MainActivity)
                             "Debug" -> DebugScreen(
@@ -749,6 +748,9 @@ class MainActivity : ComponentActivity() {
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "Overlay permission Denied!", Toast.LENGTH_SHORT)
                 .show()
+        } else {
+            preferenceManager.myPrefs.autoStartOnBootForeground = true
+            preferenceManager.savePreferences()
         }
     }
 
@@ -756,6 +758,9 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!Settings.canDrawOverlays(this)) {
                 showOverlayPermissionPopup = true
+            } else {
+                preferenceManager.myPrefs.autoStartOnBootForeground = true
+                preferenceManager.savePreferences()
             }
         }
     }
