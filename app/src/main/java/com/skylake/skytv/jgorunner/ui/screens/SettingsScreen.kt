@@ -1,94 +1,126 @@
-package com.skylake.skytv.jgorunner.activity
+package com.skylake.skytv.jgorunner.ui.screens
 
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowCircleUp
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Pix
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.ResetTv
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SoupKitchen
+import androidx.compose.material.icons.filled.Stream
+import androidx.compose.material.icons.filled.Timelapse
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.Text
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import com.skylake.skytv.jgorunner.data.SkySharedPref
-import com.skylake.skytv.jgorunner.data.applyConfigurations
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.skylake.skytv.jgorunner.MainActivity
 import com.skylake.skytv.jgorunner.R
-import com.skylake.skytv.jgorunner.utils.RemoteBinaryFetcher
+import com.skylake.skytv.jgorunner.activities.AppListActivity
+import com.skylake.skytv.jgorunner.activities.MainActivity
+import com.skylake.skytv.jgorunner.core.data.JTVConfigurationManager
+import com.skylake.skytv.jgorunner.data.SkySharedPref
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(context: Context) {
+fun SettingsScreen(
+    activity: ComponentActivity,
+    checkForUpdates: () -> Unit,
+    requestOverlayPermission: () -> Unit
+) {
     // Initialize SkySharedPref
-    val preferenceManager = remember { SkySharedPref(context) }
-
+    val jtvConfigurationManager = JTVConfigurationManager.getInstance(activity)
+    val preferenceManager = SkySharedPref.getInstance(activity)
     val focusRequester = remember { FocusRequester() }
-
     val customFontFamily = FontFamily(Font(R.font.chakrapetch_bold))
 
+    fun applySettings() {
+        preferenceManager.savePreferences()
+    }
     // Retrieve saved switch states
-    val savedSwitchStateForLOCAL = preferenceManager.getKey("isFlagSetForLOCAL") == "Yes"
-    var isSwitchOnForLOCAL by remember { mutableStateOf(savedSwitchStateForLOCAL) }
-
-    val savedSwitchStateForEPG = preferenceManager.getKey("isFlagSetForEPG") == "Yes"
-    var isSwitchOnForEPG by remember { mutableStateOf(savedSwitchStateForEPG) }
-
-    val savedSwitchStateForAutoUpdate = preferenceManager.getKey("isAutoUpdate") == "Yes"
-    var isSwitchOnForAutoUpdate by remember { mutableStateOf(savedSwitchStateForAutoUpdate) }
-
-    val savedSwitchStateForAutoStartServer = preferenceManager.getKey("isFlagSetForAutoStartServer") == "Yes"
-    var isSwitchOnForAutoStartServer by remember { mutableStateOf(savedSwitchStateForAutoStartServer) }
-
-    val savedSwitchStateForAutoStartOnBoot = preferenceManager.getKey("isFlagSetForAutoStartOnBoot") == "Yes"
-    var isSwitchOnForAutoStartOnBoot by remember { mutableStateOf(savedSwitchStateForAutoStartOnBoot) }
-
-    val savedSwitchStateForAutoIPTV = preferenceManager.getKey("isFlagSetForAutoIPTV") == "Yes"
-    var isSwitchOnForAutoIPTV by remember { mutableStateOf(savedSwitchStateForAutoIPTV) }
-
-    val savedisCheckForUpdate = preferenceManager.getKey("isCheckForUpdate") == "Yes"
-    var isSwitchOnCheckForUpdate by remember { mutableStateOf(savedisCheckForUpdate) }
-
-    val savedSwitchStateForAutoStartIPTVOnBoot = preferenceManager.getKey("isFlagSetForAutoBootIPTV") == "Yes"
-    var isSwitchOnForisFlagSetForAutoBootIPTV by remember { mutableStateOf(savedSwitchStateForAutoStartIPTVOnBoot) }
-
-    val savedIPTVRedirectTime = preferenceManager.getKey("isFlagSetForIPTVtime")?.toInt() ?: 5000
-    var selectedIPTVTime by remember { mutableStateOf(savedIPTVRedirectTime) }
-
-    // Retrieve saved port number
-    val savedPortNumber = preferenceManager.getKey("isCustomSetForPORT")?.toIntOrNull() ?: 5350
-    var portNumber by remember { mutableStateOf(savedPortNumber.toString()) }
-
-    // Retrieve saved version number
-    val savedVersionNumber = preferenceManager.getKey("releaseName")?: "Not Installed"
-    var releaseName by remember { mutableStateOf(savedVersionNumber) }
+    var isSwitchOnForLOCAL by remember {
+        mutableStateOf(preferenceManager.myPrefs.serveLocal)
+    }
+    var isSwitchOnForEPG by remember {
+        mutableStateOf(jtvConfigurationManager.jtvConfiguration.epg)
+    }
+    var isSwitchOnForAutoStartServer by remember {
+        mutableStateOf(preferenceManager.myPrefs.autoStartServer)
+    }
+    var isSwitchOnForAutoStartForeground by remember {
+        mutableStateOf(preferenceManager.myPrefs.autoStartOnBootForeground)
+    }
+    var isSwitchOnForAutoStartOnBoot by remember {
+        mutableStateOf(preferenceManager.myPrefs.autoStartOnBoot)
+    }
+    var isSwitchOnForAutoIPTV by remember {
+        mutableStateOf(preferenceManager.myPrefs.autoStartIPTV)
+    }
+    var isSwitchOnCheckForUpdate by remember {
+        mutableStateOf(preferenceManager.myPrefs.enableAutoUpdate)
+    }
+    var selectedIPTVTime by remember {
+        mutableIntStateOf(preferenceManager.myPrefs.iptvLaunchCountdown)
+    }
+    var portNumber by remember {
+        mutableIntStateOf(preferenceManager.myPrefs.jtvGoServerPort)
+    }
 
     var showPortDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
@@ -96,51 +128,56 @@ fun SettingsScreen(context: Context) {
 
     // Update shared preference when switch states change
     LaunchedEffect(isSwitchOnForLOCAL) {
-        preferenceManager.setKey("isFlagSetForLOCAL", if (isSwitchOnForLOCAL) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
+        preferenceManager.myPrefs.serveLocal = isSwitchOnForLOCAL
+        applySettings()
     }
 
     LaunchedEffect(isSwitchOnForAutoStartServer) {
-        preferenceManager.setKey("isFlagSetForAutoStartServer", if (isSwitchOnForAutoStartServer) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
+        preferenceManager.myPrefs.autoStartServer = isSwitchOnForAutoStartServer
+        applySettings()
     }
 
     LaunchedEffect(isSwitchOnForAutoStartOnBoot) {
-        preferenceManager.setKey("isFlagSetForAutoStartOnBoot", if (isSwitchOnForAutoStartOnBoot) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
+        preferenceManager.myPrefs.autoStartOnBoot = isSwitchOnForAutoStartOnBoot
+        applySettings()
     }
 
     LaunchedEffect(isSwitchOnForAutoIPTV) {
-        preferenceManager.setKey("isFlagSetForAutoIPTV", if (isSwitchOnForAutoIPTV) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
-    }
-
-    LaunchedEffect(isSwitchOnForAutoUpdate) {
-        preferenceManager.setKey("isAutoUpdate", if (isSwitchOnForAutoUpdate) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
-    }
-
-    LaunchedEffect(isSwitchOnForisFlagSetForAutoBootIPTV) {
-        preferenceManager.setKey("isFlagSetForAutoBootIPTV", if (isSwitchOnForisFlagSetForAutoBootIPTV) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
+        preferenceManager.myPrefs.autoStartIPTV = isSwitchOnForAutoIPTV
+        applySettings()
     }
 
     LaunchedEffect(selectedIPTVTime) {
-        preferenceManager.setKey("isFlagSetForIPTVtime", selectedIPTVTime.toString())
+        preferenceManager.myPrefs.iptvLaunchCountdown = selectedIPTVTime
+        applySettings()
     }
 
     // Update port number when changed
     LaunchedEffect(portNumber) {
-        val validPort = portNumber.toIntOrNull()
-        if (validPort != null && validPort in 1000..9999) {
-            preferenceManager.setKey("isCustomSetForPORT", validPort.toString())
-            applyConfigurations(context, preferenceManager)
+        if (portNumber !in 1000..9999) {
+            portNumber = 5350
         }
+        preferenceManager.myPrefs.jtvGoServerPort = portNumber
+        applySettings()
     }
 
     LaunchedEffect(isSwitchOnCheckForUpdate) {
-        preferenceManager.setKey("isCheckForUpdate", if (isSwitchOnCheckForUpdate) "Yes" else "No")
-        applyConfigurations(context, preferenceManager)
+        preferenceManager.myPrefs.enableAutoUpdate = isSwitchOnCheckForUpdate
+        applySettings()
+    }
+
+    LaunchedEffect(isSwitchOnForAutoStartForeground) {
+        if (isSwitchOnForAutoStartForeground){
+            requestOverlayPermission()
+            return@LaunchedEffect
+        }
+        preferenceManager.myPrefs.autoStartOnBootForeground = isSwitchOnForAutoStartForeground
+        applySettings()
+    }
+
+    LaunchedEffect(isSwitchOnForEPG) {
+        jtvConfigurationManager.jtvConfiguration.epg = isSwitchOnForEPG
+        jtvConfigurationManager.saveJTVConfiguration()
     }
 
     Column(
@@ -150,7 +187,7 @@ fun SettingsScreen(context: Context) {
     ) {
         // TopAppBar
         TopAppBar(
-            title = { Text(text = "Settings", fontSize = 30.sp,fontFamily = customFontFamily) },
+            title = { Text(text = "Settings", fontSize = 30.sp, fontFamily = customFontFamily) },
         )
 
         // Content
@@ -158,118 +195,92 @@ fun SettingsScreen(context: Context) {
             modifier = Modifier.padding(top = 0.dp)
         ) {
             item {
-                SettingSwitchItem(
-                    icon = Icons.Filled.Pix,
+                SettingSwitchItem(icon = Icons.Filled.Pix,
                     title = "Auto Start Server",
                     subtitle = "Automatically start server on app start",
                     isChecked = isSwitchOnForAutoStartServer,
-                    onCheckedChange = { isChecked -> isSwitchOnForAutoStartServer = isChecked }
-                )
+                    onCheckedChange = { isChecked -> isSwitchOnForAutoStartServer = isChecked })
             }
-
             item {
-                SettingSwitchItem(
-                    icon = Icons.Filled.Stream,
+                SettingSwitchItem(icon = Icons.Filled.Stream,
                     title = "Auto Start on Boot",
                     subtitle = "Automatically start server on boot",
                     isChecked = isSwitchOnForAutoStartOnBoot,
-                    onCheckedChange = { isChecked -> isSwitchOnForAutoStartOnBoot = isChecked }
-                )
+                    onCheckedChange = { isChecked -> isSwitchOnForAutoStartOnBoot = isChecked })
             }
-
-
 
             // Conditionally render the Boot switch
             if (isSwitchOnForAutoStartOnBoot) {
                 item {
-                    val stateBG = if (isSwitchOnForisFlagSetForAutoBootIPTV) "background" else "foreground"
-                    SettingSwitchItem(
-                        icon = Icons.Filled.CenterFocusStrong,
+                    val stateBG =
+                        if (isSwitchOnForAutoStartForeground) "foreground" else "background"
+                    SettingSwitchItem(icon = Icons.Filled.CenterFocusStrong,
                         title = "Server Start Mode",
-                        subtitle =  "The server will start in $stateBG mode",
-                        isChecked = isSwitchOnForisFlagSetForAutoBootIPTV,
-                        onCheckedChange = {
-                            isChecked -> isSwitchOnForisFlagSetForAutoBootIPTV = isChecked
-                        }
-                    )
+                        subtitle = "The server will start in $stateBG mode",
+                        isChecked = isSwitchOnForAutoStartForeground,
+                        onCheckedChange = { isChecked ->
+                            isSwitchOnForAutoStartForeground = isChecked
+                        })
                 }
             }
-
             item {
-                SettingSwitchItem(
-                    icon = Icons.Filled.Public,
+                SettingSwitchItem(icon = Icons.Filled.Public,
                     title = "Use Server Publicly",
                     subtitle = "Allow access to server from other devices",
-                    isChecked = isSwitchOnForLOCAL,
-                    onCheckedChange = { isChecked -> isSwitchOnForLOCAL = isChecked }
-                )
+                    isChecked = !isSwitchOnForLOCAL,
+                    onCheckedChange = { isChecked -> isSwitchOnForLOCAL = !isChecked })
             }
-
             // Port Number Setting
             item {
-                SettingItem(
-                    icon = Icons.Filled.Settings,
+                SettingItem(icon = Icons.Filled.Settings,
                     title = "Server Port",
                     subtitle = "Current Port: $portNumber",
-                    onClick = { showPortDialog = true }
-                )
+                    onClick = { showPortDialog = true })
             }
-
-//            item {
-//                HorizontalDivider(
-//                    modifier = Modifier.padding(horizontal = 16.dp),
-//                    thickness = 1.dp,
-//                    color = MaterialTheme.colorScheme.surface
-//                )
-//            }
-
-            if (false) {
-                item {
-                    SettingSwitchItem(
-                        icon = Icons.Filled.Info,
-                        title = "Enable EPG",
-                        subtitle = "Electronic program guide generation",
-                        isChecked = isSwitchOnForEPG,
-                        onCheckedChange = { isChecked -> isSwitchOnForEPG = isChecked }
-                    )
-                }
-            }
-
             item {
                 SettingSwitchItem(
-                    icon = Icons.Filled.LiveTv,
+                    icon = Icons.Filled.Info,
+                    title = "Enable EPG",
+                    subtitle = "Electronic program guide generation",
+                    isChecked = isSwitchOnForEPG,
+                    onCheckedChange = { isChecked -> isSwitchOnForEPG = isChecked },
+                )
+            }
+            item {
+                SettingSwitchItem(icon = Icons.Filled.LiveTv,
                     title = "Auto IPTV",
                     subtitle = "Automatically start IPTV on app start",
                     isChecked = isSwitchOnForAutoIPTV,
-                    onCheckedChange = { isChecked -> isSwitchOnForAutoIPTV = isChecked }
-                )
+                    onCheckedChange = { isChecked -> isSwitchOnForAutoIPTV = isChecked })
             }
-
             item {
                 Spacer(modifier = Modifier.height(12.dp))
-                SettingItem(
-                    icon = Icons.Filled.ResetTv,
+                SettingItem(icon = Icons.Filled.ResetTv,
                     title = "Select Start IPTV",
                     subtitle = "Choose your preferred IPTV to start",
                     onClick = {
-                        val intent = Intent(context, AppListActivity::class.java)
-                        context.startActivity(intent)
-                    }
-                )
+                        val intent = Intent(activity, AppListActivity::class.java)
+                        activity.startActivity(intent)
+                    })
             }
-
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
-                    Icon(imageVector = Icons.Filled.Timelapse, contentDescription = null, modifier = Modifier.size(24.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Timelapse,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(text = "IPTV Redirect Time: ${selectedIPTVTime / 1000} sec", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "IPTV Redirect Time: ${selectedIPTVTime / 1000} sec",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                Slider(
-                    value = selectedIPTVTime.toFloat(),
+                Slider(value = selectedIPTVTime.toFloat(),
                     onValueChange = { selectedIPTVTime = it.toInt() },
                     valueRange = 2000f..10000f,
                     steps = 5, // for 2, 4, 6, 8, 10 seconds
@@ -283,85 +294,40 @@ fun SettingsScreen(context: Context) {
                                     selectedIPTVTime = (selectedIPTVTime + 1000).coerceAtMost(10000)
                                     true
                                 }
+
                                 Key.DirectionLeft.nativeKeyCode -> {
                                     selectedIPTVTime = (selectedIPTVTime - 1000).coerceAtLeast(2000)
                                     true
                                 }
+
                                 else -> false
                             }
-                        }
-                )
+                        })
 
             }
-
-//            item {
-//                HorizontalDivider(
-//                    modifier = Modifier.padding(horizontal = 16.dp),
-//                    thickness = 1.dp,
-//                    color = Color.Gray
-//                )
-//            }
-
-
             item {
-                SettingSwitchItem(
-                    icon = Icons.Filled.SoupKitchen,
+                SettingSwitchItem(icon = Icons.Filled.SoupKitchen,
                     title = "Check for updates",
                     subtitle = "Check for updates when the app starts",
                     isChecked = isSwitchOnCheckForUpdate,
-                    onCheckedChange = { isChecked -> isSwitchOnCheckForUpdate = isChecked }
-                )
+                    onCheckedChange = { isChecked -> isSwitchOnCheckForUpdate = isChecked })
             }
-
             item {
-                SettingItem(
-                    icon = Icons.Filled.ArrowCircleUp,
+                SettingItem(icon = Icons.Filled.ArrowCircleUp,
                     title = "Update Binary",
                     subtitle = "Update to the latest binary version.",
                     onClick = {
-                        preferenceManager.setKey("expectedFileSize", "0")
-                        RemoteBinaryFetcher.startDownloadAndSave(context) { output ->
-                            Handler(Looper.getMainLooper()).post {
-                                Toast.makeText(context, output, Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
-                )
+                        checkForUpdates()
+                    })
             }
-
             item {
-                SettingItem(
-                    icon = Icons.Filled.RestartAlt,
+                SettingItem(icon = Icons.Filled.RestartAlt,
                     title = "Reset All Settings",
                     subtitle = "Useful for troubleshooting and resolving issues.",
                     onClick = {
-                        resetFunc(context) {
-                            showRestartAppDialog = true
-                        }
-
-                    }
-                )
+                        showRestartAppDialog = true
+                    })
             }
-
-
-            item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp),
-                    thickness = 1.dp,
-                )
-            }
-
-            item {
-                Text(
-                    text = "Note: EPG is not supported.",
-                    fontSize = 14.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-            }
-
-
-
         }
     }
 
@@ -372,8 +338,7 @@ fun SettingsScreen(context: Context) {
             properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
         ) {
             Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface
+                shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface
             ) {
                 Column(
                     modifier = Modifier
@@ -383,23 +348,22 @@ fun SettingsScreen(context: Context) {
                 ) {
                     Text(text = "Set Server Port", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
-
+                    var currentPort by remember { mutableStateOf(portNumber.toString()) }
                     TextField(
-                        value = portNumber,
-                        onValueChange = { portNumber = it.take(4) },
+                        value = currentPort,
+                        onValueChange = { currentPort = it },
                         label = { Text(text = "Port Number") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions.Default.copy(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done), // Numeric keyboard + Done action
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                val validPort = portNumber.toIntOrNull()
-                                if (validPort != null && validPort in 1000..9999) {
-                                    preferenceManager.setKey("isCustomSetForPORT", validPort.toString())
-                                    showPortDialog = false
-                                    showRestartDialog = true // Show restart dialog
-                                }
+                        keyboardOptions = KeyboardOptions.Default.copy(
+                            keyboardType = KeyboardType.Number, imeAction = ImeAction.Done
+                        ), // Numeric keyboard + Done action
+                        keyboardActions = KeyboardActions(onDone = {
+                            if (currentPort.toIntOrNull() != null && currentPort.toIntOrNull() in 1000..9999) {
+                                portNumber = currentPort.toInt()
+                                showPortDialog = false
+                                showRestartDialog = true
                             }
-                        ),
+                        }),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -413,9 +377,8 @@ fun SettingsScreen(context: Context) {
                             Text("Cancel")
                         }
                         Button(onClick = {
-                            val validPort = portNumber.toIntOrNull()
-                            if (validPort != null && validPort in 1000..9999) {
-                                preferenceManager.setKey("isCustomSetForPORT", validPort.toString())
+                            if (currentPort.toIntOrNull() != null && currentPort.toIntOrNull() in 1000..9999) {
+                                portNumber = currentPort.toInt()
                                 showPortDialog = false
                                 showRestartDialog = true
                             }
@@ -436,8 +399,7 @@ fun SettingsScreen(context: Context) {
             properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
         ) {
             Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface
+                shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface
             ) {
                 Column(
                     modifier = Modifier
@@ -447,7 +409,10 @@ fun SettingsScreen(context: Context) {
                 ) {
                     Text(text = "Restart Required", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = "The server port has been changed. Please restart the device for the changes to take effect.", fontSize = 16.sp)
+                    Text(
+                        text = "The server port has been changed. Please restart the device for the changes to take effect.",
+                        fontSize = 16.sp
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -469,8 +434,7 @@ fun SettingsScreen(context: Context) {
             properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
         ) {
             Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface
+                shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface
             ) {
                 Column(
                     modifier = Modifier
@@ -480,7 +444,10 @@ fun SettingsScreen(context: Context) {
                 ) {
                     Text(text = "Restart Required", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(text = "The app needs to be restarted for the changes to take effect. Please restart the app.", fontSize = 16.sp)
+                    Text(
+                        text = "The app needs to be restarted to reset all app settings. Please restart the app.",
+                        fontSize = 16.sp
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -488,7 +455,8 @@ fun SettingsScreen(context: Context) {
                     ) {
                         Button(onClick = {
                             showRestartAppDialog = false
-                            restartApp(context)
+                            resetFunc(activity)
+                            restartApp(activity)
                         }) {
                             Text("Restart")
                         }
@@ -497,8 +465,6 @@ fun SettingsScreen(context: Context) {
             }
         }
     }
-
-
 }
 
 fun restartApp(context: Context) {
@@ -509,7 +475,7 @@ fun restartApp(context: Context) {
 }
 
 
-fun resetFunc(context: Context, onComplete: () -> Unit) {
+fun resetFunc(context: Context) {
     Toast.makeText(context, "[#] Clearing files.", Toast.LENGTH_LONG).show()
 
     // Delete folder in external storage
@@ -518,7 +484,6 @@ fun resetFunc(context: Context, onComplete: () -> Unit) {
 
     if (folder.exists() && folder.isDirectory) {
         folder.deleteRecursively()
-    } else {
     }
 
     // Delete binary file in internal storage
@@ -526,13 +491,9 @@ fun resetFunc(context: Context, onComplete: () -> Unit) {
     if (binaryFile.exists()) {
         binaryFile.delete()
     } else {
-        Toast.makeText(context, "Reset successfully.", Toast.LENGTH_SHORT).show();
+        Toast.makeText(context, "Reset successfully.", Toast.LENGTH_SHORT).show()
     }
-    onComplete()
 }
-
-
-
 
 
 @Composable
@@ -541,14 +502,17 @@ fun SettingSwitchItem(
     title: String,
     subtitle: String,
     isChecked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .clickable { onCheckedChange(!isChecked) },
-        verticalAlignment = Alignment.CenterVertically
+            .alpha(if (enabled) 1f else 0.25f)
+            .clickable {
+                if (enabled) onCheckedChange(!isChecked)
+            }, verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.width(16.dp))
@@ -557,16 +521,13 @@ fun SettingSwitchItem(
             Text(text = subtitle, fontSize = 12.sp, color = Color.Gray)
         }
         Spacer(modifier = Modifier.weight(1f))
-        Switch(checked = isChecked, onCheckedChange = { onCheckedChange(it) })
+        Switch(checked = isChecked, onCheckedChange = { onCheckedChange(it) }, enabled = enabled)
     }
 }
 
 @Composable
 fun SettingItem(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
+    icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier

@@ -2,9 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -33,7 +30,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
         <activity
-            android:name=".MainActivity"
+            android:name=".activities.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.JGO">
             <intent-filter>
@@ -46,19 +43,15 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".activity.AppListActivity"
+        <activity android:name=".activities.AppListActivity"
             android:exported="true">
         </activity>
 
         <activity
-            android:name=".activity.WebPlayerActivity"
+            android:name=".activities.WebPlayerActivity"
             android:configChanges="orientation|screenSize"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true" >
-        </activity>
-
-        <activity android:name=".utils.ConfigSyncHandler"
-            android:exported="true">
         </activity>
 
         <service
@@ -76,7 +69,5 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
-
     </application>
-
 </manifest>

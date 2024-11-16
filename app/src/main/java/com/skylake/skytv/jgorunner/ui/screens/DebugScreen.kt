@@ -1,4 +1,4 @@
-package com.skylake.skytv.jgorunner.activity
+package com.skylake.skytv.jgorunner.ui.screens
 
 import android.content.Context
 import android.content.Intent
@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -43,6 +42,7 @@ import androidx.compose.material.icons.sharp.Info
 import androidx.compose.material.icons.sharp.Support
 import androidx.compose.runtime.*
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.ui.components.ButtonContent
 
 @Composable
 fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
@@ -57,14 +57,14 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
         Color.Magenta
     )
     val glowColor = remember { Animatable(glowColors.first()) }
-    val preferenceManager = remember { SkySharedPref(context) }
+    val preferenceManager = SkySharedPref.getInstance(context)
 
     LaunchedEffect(Unit) {
         launch(Dispatchers.IO) {
             repeat(3) {
-                val savedSwitchState = preferenceManager.getKey("isFlagSetForLOCAL")
+                val savedSwitchState = preferenceManager.myPrefs.serveLocal
                 Log.d("PreferenceCheck", "isFlagSetForLOCAL: $savedSwitchState")
-                isGlowing = savedSwitchState == "Yes"
+                isGlowing = savedSwitchState
                 delay(3000)
             }
         }
@@ -241,26 +241,6 @@ fun RowScope.Button4(context: Context) {
         contentPadding = PaddingValues(2.dp)
     ) {
         ButtonContent("GitHub", Icons.Default.Verified)
-    }
-}
-
-@Composable
-fun ButtonContent(text: String, icon: ImageVector) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = "Icon",
-            tint = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.size(32.dp)
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = text,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onPrimary
-        )
     }
 }
 

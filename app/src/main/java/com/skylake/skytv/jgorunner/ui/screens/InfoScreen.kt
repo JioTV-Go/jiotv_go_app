@@ -1,4 +1,4 @@
-package com.skylake.skytv.jgorunner.activity
+package com.skylake.skytv.jgorunner.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -25,14 +25,13 @@ import java.util.*
 
 @Composable
 fun InfoScreen(context: Context) {
-    val preferenceManager = remember { SkySharedPref(context) }
+    val preferenceManager = SkySharedPref.getInstance(context)
     val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
     val ipAddress = getIpAddress(wifiManager)
     val appVersion = getAppVersion(context)
-    val binVersion = preferenceManager.getKey("releaseName")
+    val binVersion = preferenceManager.myPrefs.jtvGoBinaryVersion
     val androidVersion = Build.VERSION.RELEASE
     val sdkVersion = Build.VERSION.SDK_INT
-    val countryCode = Locale.getDefault().country
     val architecture = System.getProperty("os.arch") ?: "Unknown"
     val totalStorage = getTotalStorageSpace(context)
     val dateTime = getCurrentDateTime()
@@ -134,6 +133,7 @@ fun getAppVersion(context: Context): String {
 
 // Helper function to get the IP address from WifiManager
 fun getIpAddress(wifiManager: WifiManager): String {
+    @Suppress("deprecation")
     val ip = wifiManager.connectionInfo.ipAddress
     return if (ip != 0) {
         InetAddress.getByAddress(
@@ -171,13 +171,14 @@ fun copyToClipboard(context: Context, text: String) {
 
 // Function to check permissions
 fun checkPermissions(context: Context): List<String> {
-    val requiredPermissions = listOf(
+    val requiredPermissions = mutableListOf(
         android.Manifest.permission.READ_EXTERNAL_STORAGE,
         android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {android.Manifest.permission.POST_NOTIFICATIONS} else {
-            TODO("VERSION.SDK_INT < TIRAMISU") },
         android.Manifest.permission.SYSTEM_ALERT_WINDOW,
     )
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        requiredPermissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
 
     return requiredPermissions.map { permission ->
         val permissionName = permission.substringAfterLast(".")
