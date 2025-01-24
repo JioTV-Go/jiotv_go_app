@@ -77,6 +77,18 @@ dependencies {
     implementation libs.androidx.media3.exoplayer.hls
     implementation libs.androidx.media3.datasource
 
+    implementation libs.play.services.cast.framework
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.mediarouter
+
+//    implementation libs.arthenica.ffmpeg.kit.full
+
+    implementation 'com.arthenica:ffmpeg-kit-full-gpl:6.0-2'
+
+//    implementation 'org.nanohttpd:nanohttpd:2.4.0'
+
+    implementation libs.nanohttpd
+
     testImplementation libs.junit
 
     androidTestImplementation libs.androidx.junit

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">JTV-GO Server</string>
+    <string name="app_id">com.skylake.skytv.jgorunner</string>
 </resources>

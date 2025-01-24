@@ -4,6 +4,7 @@ customview = "1.1.0"
 customviewPoolingcontainer = "1.0.0"
 exoplayer = "2.19.1"
 exoplayerDrm = "2.18.0"
+ffmpegKitFull = "5.1"
 jsoup = "1.13.1"
 kotlin = "1.9.0"
 kotlinReflect = "1.9.25"
@@ -18,11 +19,15 @@ media3Datasource = "1.5.1"
 media3Exoplayer = "1.5.1"
 media3ExoplayerDash = "1.5.1"
 media3Ui = "1.5.1"
+mediarouter = "1.7.0"
+nanohttpd = "2.3.1"
+playServicesCastFramework = "22.0.0"
 versionParser = "5.0.0"
 okhttp = "4.12.0"
 ketch = "2.0.2"
 gson = "2.11.0"
 media3ExoplayerHls = "1.5.1"
+appcompat = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,8 +38,11 @@ androidx-media3-datasource = { module = "androidx.media3:media3-datasource", ver
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3Exoplayer" }
 androidx-media3-exoplayer-dash = { module = "androidx.media3:media3-exoplayer-dash", version.ref = "media3ExoplayerDash" }
 androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3Ui" }
+androidx-mediarouter = { module = "androidx.mediarouter:mediarouter", version.ref = "mediarouter" }
+arthenica-ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full" }
 exoplayer = { module = "com.google.android.exoplayer:exoplayer", version.ref = "exoplayer" }
 exoplayer-drm = { module = "com.google.android.exoplayer:exoplayer-drm", version.ref = "exoplayerDrm" }
+ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full", version.ref = "ffmpegKitFull" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
@@ -50,11 +58,14 @@ androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-man
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect", version.ref = "kotlinReflect"}
+nanohttpd = { module = "org.nanohttpd:nanohttpd", version.ref = "nanohttpd" }
+play-services-cast-framework = { module = "com.google.android.gms:play-services-cast-framework", version.ref = "playServicesCastFramework" }
 version-parser = { group = "org.cthing", name = "versionparser", version.ref = "versionParser" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 ketch = { group = "com.github.khushpanchal", name = "ketch", version.ref = "ketch" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3ExoplayerHls" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

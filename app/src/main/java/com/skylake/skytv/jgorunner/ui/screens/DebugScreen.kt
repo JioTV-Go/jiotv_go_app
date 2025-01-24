@@ -41,12 +41,12 @@ import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.sharp.Info
 import androidx.compose.material.icons.sharp.Support
 import androidx.compose.runtime.*
-import com.skylake.skytv.jgorunner.activities.ExoplayerActivity
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.components.ButtonContent
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.skylake.skytv.jgorunner.activities.CastActivity
 
 @Composable
 fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
@@ -70,7 +70,7 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
                 val savedSwitchState = preferenceManager.myPrefs.serveLocal
                 Log.d("PreferenceCheck", "isFlagSetForLOCAL: $savedSwitchState")
                 isGlowing = savedSwitchState
-                delay(3000)
+                delay(10000)
             }
         }
     }
@@ -145,7 +145,7 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             Button5(context, onNavigate)
-            Button6(context)
+            Button6(context, onNavigate)
         }
     }
 }
@@ -293,7 +293,7 @@ fun RowScope.Button5(context: Context, onNavigate: (String) -> Unit) {
 }
 
 @Composable
-fun RowScope.Button6(context: Context) {
+fun RowScope.Button6(context: Context, onNavigate: (String) -> Unit) {
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = colorPRIME.copy(alpha = 0.5f)
     val buttonColor = remember { mutableStateOf(colorPRIME) }
@@ -301,7 +301,8 @@ fun RowScope.Button6(context: Context) {
     Button(
         onClick = {
             handleButton6Click(context)
-            val intent = Intent(context, ExoplayerActivity::class.java)
+//           onNavigate("Cast")
+            val intent = Intent(context, CastActivity::class.java)
             context.startActivity(intent)
         },
         modifier = Modifier
@@ -347,5 +348,5 @@ fun handleButton5Click(context: Context) {
 }
 
 fun handleButton6Click(context: Context) {
-    Toast.makeText(context, "Pending Implementation", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "Pending ImplementationX", Toast.LENGTH_SHORT).show()
 }

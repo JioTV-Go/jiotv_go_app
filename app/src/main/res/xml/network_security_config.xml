@@ -3,4 +3,5 @@
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
     </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

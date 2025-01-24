@@ -48,6 +48,7 @@ import com.skylake.skytv.jgorunner.ui.components.CustPopup
 import com.skylake.skytv.jgorunner.ui.components.LoginPopup
 import com.skylake.skytv.jgorunner.ui.components.ProgressPopup
 import com.skylake.skytv.jgorunner.ui.components.RedirectPopup
+import com.skylake.skytv.jgorunner.ui.screens.CastScreen
 import com.skylake.skytv.jgorunner.ui.screens.DebugScreen
 import com.skylake.skytv.jgorunner.ui.screens.HomeScreen
 import com.skylake.skytv.jgorunner.ui.screens.InfoScreen
@@ -262,6 +263,7 @@ class MainActivity : ComponentActivity() {
 
                             "Runner" -> RunnerScreen(context = this@MainActivity)
                             "Login" -> LoginScreen(context = this@MainActivity)
+                            "Cast" -> CastScreen(context = this@MainActivity)
                         }
 
                         // Show the redirect popup
