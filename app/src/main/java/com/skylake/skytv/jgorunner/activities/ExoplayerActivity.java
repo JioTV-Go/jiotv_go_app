@@ -11,22 +11,25 @@ import android.os.Looper;
 import android.util.Log;
 import android.util.Rational;
 import android.view.WindowManager;
-import android.view.View;
 import android.widget.Toast;
+
 import androidx.activity.ComponentActivity;
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
-import androidx.annotation.RequiresApi;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import com.skylake.skytv.jgorunner.R;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class ExoplayerActivity extends ComponentActivity {
 
@@ -55,8 +58,14 @@ public class ExoplayerActivity extends ComponentActivity {
 
         Intent intent = getIntent();
         String videoUrl = intent.getStringExtra("video_url");
+        String current_play_id = intent.getStringExtra("current_play_id");
+        String[] channelNumbersArray = getIntent().getStringArrayExtra("channels_list");
+        List<String> channelNumbers = channelNumbersArray != null ? Arrays.asList(channelNumbersArray) : null;
+        // For future usage
 
-        if (videoUrl == null || videoUrl.isEmpty()) {
+
+        assert videoUrl != null;
+        if (videoUrl.isEmpty()) {
             videoUrl = "http://localhost:5350/live/143.m3u8";
         }
 
@@ -67,12 +76,14 @@ public class ExoplayerActivity extends ComponentActivity {
         DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory();
 
         MediaSource hlsMediaSource = new HlsMediaSource.Factory(dataSourceFactory)
+                .setAllowChunklessPreparation(true)
                 .createMediaSource(MediaItem.fromUri(Uri.parse(formattedUrl)));
 
         player.setMediaSource(hlsMediaSource);
         playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         playerView.setShowNextButton(false);
         playerView.setShowPreviousButton(false);
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         player.prepare();
         player.setPlayWhenReady(true);
 
@@ -127,9 +138,9 @@ public class ExoplayerActivity extends ComponentActivity {
     protected void onStop() {
         super.onStop();
         if (player != null) {
-            player.stop();  // Stops playback
-            player.release(); // Releases the player and cleans up resources
-            player = null; // Nullifies the player object
+            player.stop();
+            player.release();
+            player = null;
         }
     }
 
@@ -141,27 +152,6 @@ public class ExoplayerActivity extends ComponentActivity {
         }
     }
 
-
-//    @RequiresApi(Build.VERSION_CODES.O)
-//    @Override
-//    public void onBackPressed() {
-//        if (!isInPipMode) {
-//            createPIPMode();
-//        } else {
-//            super.onBackPressed();
-//        }
-//    }
-
-//    @Override
-//    protected void onDestroy() {
-//        super.onDestroy();
-//        if (player != null) {
-//            player.release();
-//            player = null;
-//        }
-//    }
-
-
     @Override
     protected void onNewIntent(@NonNull Intent intent) {
         super.onNewIntent(intent);
@@ -172,7 +162,7 @@ public class ExoplayerActivity extends ComponentActivity {
 
     private void createPIPMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Rational aspectRatio = new Rational(16, 9); // Aspect ratio for PiP mode
+            Rational aspectRatio = new Rational(16, 9);
             PictureInPictureParams.Builder pipBuilder = new PictureInPictureParams.Builder();
             pipBuilder.setAspectRatio(aspectRatio);
 
@@ -188,9 +178,6 @@ public class ExoplayerActivity extends ComponentActivity {
     public void onPictureInPictureModeChanged(boolean isInPiPMode, @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPiPMode, newConfig);
         isInPipMode = isInPiPMode;
-//        if (isInPiPMode) {
-//
-//        }
     }
 
 }

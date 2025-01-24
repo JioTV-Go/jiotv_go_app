@@ -136,18 +136,20 @@ class WebPlayerActivity : ComponentActivity() {
 
     private fun updateSystemUiVisibility() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
             window.insetsController?.let { controller ->
                 controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
                 controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         } else {
             @Suppress("deprecation")
-            window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+            window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    )
         }
     }
+
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
@@ -187,6 +189,7 @@ class WebPlayerActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         webView!!.onResume()
+//        webView!!.loadUrl(url!!)
     }
 
 
@@ -261,8 +264,8 @@ class WebPlayerActivity : ComponentActivity() {
                 Log.d(TAG, "Saving initURL: $initURL")
 
                 // Extract the play ID from the URL
-                val playId = if (url.matches(".*\\/play\\/([^\\/]+).*".toRegex())) url.replace(
-                    ".*\\/play\\/([^\\/]+).*".toRegex(),
+                val playId = if (url.matches(".*/play/([^/]+).*".toRegex())) url.replace(
+                    ".*/play/([^/]+).*".toRegex(),
                     "$1"
                 ) else null
 
@@ -320,9 +323,11 @@ class WebPlayerActivity : ComponentActivity() {
                 val modifiedUrl = url.replace("/play/", "/live/") + ".m3u8"
                 Log.d("DIX", "Modified URL for intent: $modifiedUrl")
 
-                // Send the intent to MainActivityx
+                // Send the intent to ExoplayerActivity
                 val intent = Intent(this@WebPlayerActivity, ExoplayerActivity::class.java).apply {
                     putExtra("video_url", modifiedUrl)
+                    putExtra("current_play_id", playId?.substringBefore("?") ?: playId)
+                    putExtra("channels_list", channelNumbers?.toTypedArray())
                 }
                 startActivity(intent)
                 return true

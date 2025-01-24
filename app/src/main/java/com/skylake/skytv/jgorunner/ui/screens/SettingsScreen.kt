@@ -398,17 +398,20 @@ fun SettingsScreen(
                     })
             }
 
-            item {
-                SettingItem(
-                    icon = Icons.Filled.Backup,
-                    title = "Backup & Restore",
-                    subtitle = "Securely back up and restore your data.",
-                    showBadge = showNewBadge,
-                    onClick = {
-                        showBackupDialog = true
-                        showNewBadge = false
-                    }
-                )
+            if (false) {
+                item {
+                    SettingItem(
+                        icon = Icons.Filled.Backup,
+                        title = "Backup & Restore",
+                        subtitle = "Securely back up and restore your data.",
+                        showBadge = showNewBadge,
+                        onClick = {
+                            showBackupDialog = true
+                            showNewBadge = false
+                        }
+                    )
+                }
+
             }
 
             item {
