@@ -28,7 +28,7 @@ import com.google.android.gms.cast.framework.CastContext
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.activities.castVideo
 import com.skylake.skytv.jgorunner.activities.crosscode
-import kotlinx.coroutines.*
+import com.skylake.skytv.jgorunner.data.SkySharedPref
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -39,6 +39,7 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
     val castContext = CastContext.getSharedInstance(context)
     val session = castContext.sessionManager.currentCastSession
     val customFontFamily = FontFamily(Font(R.font.chakrapetch_bold))
+    val prefManager = SkySharedPref.getInstance(context)
 
     LaunchedEffect(Unit) {
         Log.d("DIX", "CASTSCREEN")
@@ -104,7 +105,10 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                     WebView(it).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
-                        webViewClient = CustomWebViewClient(context)
+                        webViewClient = CustomWebViewClient(
+                            context,
+                            prefManager = prefManager
+                        )
                         loadUrl(viewURL)
                     }
                 },
@@ -116,7 +120,7 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
     }
 }
 
-private class CustomWebViewClient(val context: Context) : WebViewClient() {
+private class CustomWebViewClient(val context: Context, private val prefManager: SkySharedPref) : WebViewClient() {
     private val TAG = "CustomWebViewClient"
     private var initURL: String? = null
     private var currentPlayId: String? = null
@@ -176,16 +180,15 @@ private class CustomWebViewClient(val context: Context) : WebViewClient() {
             Log.d(TAG, "Modified URL for intent: $modifiedUrl")
 
             val newPlayerURL = formatVideoUrl(modifiedUrl)
+            val curChannelName = currentChannelName + ""
+//            val curLogoUrl
 
             if (newPlayerURL != null) {
                 Log.d("DIXXXXX2", newPlayerURL)
-                crosscode(context, newPlayerURL)
-//                castVideo(context, "http://192
-            //
-            //
-            //
-            //                .168.1.19:5350/live/high/144.m3u8")
-//                castVideo(context, "http://192.168.1.10:8080")
+                crosscode(context,curChannelName, newPlayerURL)
+
+                
+//                castVideo(context,curChannelName, newPlayerURL)
             }
 
             return true
@@ -196,8 +199,18 @@ private class CustomWebViewClient(val context: Context) : WebViewClient() {
         return false
     }
 
-    private fun saveRecentChannel(playId: String?, logoUrl: String?, channelName: String?) {
-        // Logic to save the recent channel data
+    private fun saveRecentChannel( playId: String?, logoUrl: String?, channelName: String?) {
+
+        prefManager.myPrefs.castChannelName = channelName
+        prefManager.myPrefs.castChannelLogo = logoUrl
+
+
+
+
+
+
+        Log.d("DIXSD--","$channelName : $logoUrl")
+        
     }
 
     private fun formatVideoUrl(videoUrlbase: String): String? {
@@ -221,7 +234,7 @@ private class CustomWebViewClient(val context: Context) : WebViewClient() {
             }
         }
 
-        videoUrl = videoUrl.replace("//.m3u8", "/.m3u8")
+        videoUrl = videoUrl.replace("//.m3u8", ".m3u8")
 
         Log.d("DIXr", videoUrl)
 

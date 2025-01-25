@@ -320,7 +320,10 @@ class WebPlayerActivity : ComponentActivity() {
                 }
 
                 // Construct the new URL
-                val modifiedUrl = url.replace("/play/", "/live/") + ".m3u8"
+                var modifiedUrl = url.replace("/play/", "/live/") + ".m3u8"
+
+                modifiedUrl = modifiedUrl.replace("//.m3u8", ".m3u8")
+
                 Log.d("DIX", "Modified URL for intent: $modifiedUrl")
 
                 // Send the intent to ExoplayerActivity

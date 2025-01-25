@@ -223,11 +223,12 @@ class MainActivity : ComponentActivity() {
                                 onWebTVButtonClick = {
                                     val intent =
                                         Intent(this@MainActivity, WebPlayerActivity::class.java)
-//                                          Intent(this@MainActivity, WebPlayerAltActivity::class.java)
                                     startActivity(intent)
                                 },
                                 onDebugButtonClick = {
-                                    currentScreen = "Debug"
+                                    val intent =
+                                        Intent(this@MainActivity, CastActivity::class.java)
+                                    startActivity(intent)
                                 },
                                 onExitButtonClick = {
                                     stopBinary(

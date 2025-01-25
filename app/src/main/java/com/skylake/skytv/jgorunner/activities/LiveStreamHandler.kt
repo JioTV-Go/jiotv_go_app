@@ -19,7 +19,7 @@ import java.net.Inet4Address
 
 
 
-fun crosscode(context: Context, videoUrl: String) {
+fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
     val ipadd = getPublicJTVServerURL(context)
 
     fun ensureM3U8Suffix(videoUrl: String) =

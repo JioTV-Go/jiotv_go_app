@@ -5,6 +5,7 @@ customviewPoolingcontainer = "1.0.0"
 exoplayer = "2.19.1"
 exoplayerDrm = "2.18.0"
 ffmpegKitFull = "5.1"
+ffmpegKitFullGpl = "6.0-2"
 jsoup = "1.13.1"
 kotlin = "1.9.0"
 kotlinReflect = "1.9.25"
@@ -43,6 +44,7 @@ arthenica-ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full" }
 exoplayer = { module = "com.google.android.exoplayer:exoplayer", version.ref = "exoplayer" }
 exoplayer-drm = { module = "com.google.android.exoplayer:exoplayer-drm", version.ref = "exoplayerDrm" }
 ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full", version.ref = "ffmpegKitFull" }
+ffmpeg-kit-full-gpl = { module = "com.arthenica:ffmpeg-kit-full-gpl", version.ref = "ffmpegKitFullGpl" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

@@ -9,15 +9,20 @@ import com.google.android.gms.cast.MediaTrack
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
+import com.skylake.skytv.jgorunner.data.SkySharedPref
 
 fun castVideo(context: Context, videoUrl: String) {
     val castSession: CastSession? = CastContext.getSharedInstance(context).sessionManager.currentCastSession
     val remoteMediaClient: RemoteMediaClient? = castSession?.remoteMediaClient
+    val prefManager = SkySharedPref.getInstance(context)
+
+    val currentChannelName1 = prefManager.myPrefs.castChannelName+""
+
+    Log.d("DIXplayer2", currentChannelName1)
 
     if (remoteMediaClient != null) {
         val metadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
-            putString(MediaMetadata.KEY_TITLE, "Live Stream")
-            putString(MediaMetadata.KEY_SUBTITLE, "Live Stream Subtitle")
+            putString(MediaMetadata.KEY_TITLE, currentChannelName1)
         }
 
 
@@ -35,7 +40,7 @@ fun castVideo(context: Context, videoUrl: String) {
 //            .build() "video/mp4;codecs=hev1.2.4.L153.B0"
 
         val mediaInfo = MediaInfo.Builder(videoUrl)
-            .setStreamType(MediaInfo.STREAM_TYPE_INVALID)
+            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
 //            .setContentType("application/vnd.apple.mpegurl") // MIME type for MPEG-TS
             .setMetadata(metadata)
             .build()

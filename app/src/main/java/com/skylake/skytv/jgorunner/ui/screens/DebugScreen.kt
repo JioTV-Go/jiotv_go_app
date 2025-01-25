@@ -47,6 +47,7 @@ import com.skylake.skytv.jgorunner.ui.components.ButtonContent
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.skylake.skytv.jgorunner.activities.CastActivity
+import com.skylake.skytv.jgorunner.activities.ExoplayerActivity
 
 @Composable
 fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
@@ -114,29 +115,6 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusGroup(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Button1(context, onNavigate)
-            Button2(context, onNavigate)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusGroup(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            Button3(context)
-            Button4(context)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
 
         Row(
             modifier = Modifier
@@ -145,7 +123,35 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             Button5(context, onNavigate)
-            Button6(context, onNavigate)
+            Button6(context)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusGroup(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+
+            Button7(context)
+            Button8(context)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusGroup(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Button1(context, onNavigate)
+            Button2(context, onNavigate)
+            Button3(context)
+            Button4(context)
+
         }
     }
 }
@@ -158,8 +164,7 @@ fun RowScope.Button1(context: Context, onNavigate: (String) -> Unit) {
     val buttonColor = remember { mutableStateOf(colorPRIME) }
     Button(
         onClick = {
-            handleButton1Click(context)
-            onNavigate("Runner")
+            handleButton1Click(context,onNavigate)
         },
         modifier = Modifier
             .weight(1f)
@@ -175,7 +180,7 @@ fun RowScope.Button1(context: Context, onNavigate: (String) -> Unit) {
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {
-        ButtonContent("Binary Runner", Icons.AutoMirrored.Filled.DirectionsRun)
+        ButtonContent("Runner", Icons.AutoMirrored.Filled.DirectionsRun)
     }
 }
 
@@ -188,8 +193,7 @@ fun RowScope.Button2(context: Context, onNavigate: (String) -> Unit) {
 
     Button(
         onClick = {
-            handleButton2Click(context)
-            onNavigate("Info")
+            handleButton2Click(context,onNavigate)
         },
         modifier = Modifier
             .weight(1f)
@@ -207,7 +211,7 @@ fun RowScope.Button2(context: Context, onNavigate: (String) -> Unit) {
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {
-        ButtonContent("System Info", Icons.Sharp.Info)
+        ButtonContent("Sys Info", Icons.Sharp.Info)
     }
 }
 
@@ -271,8 +275,7 @@ fun RowScope.Button5(context: Context, onNavigate: (String) -> Unit) {
 
     Button(
         onClick = {
-            onNavigate("Login")
-            handleButton5Click(context)
+            handleButton5Click(context, onNavigate)
                   },
         modifier = Modifier
             .weight(1f)
@@ -293,7 +296,7 @@ fun RowScope.Button5(context: Context, onNavigate: (String) -> Unit) {
 }
 
 @Composable
-fun RowScope.Button6(context: Context, onNavigate: (String) -> Unit) {
+fun RowScope.Button6(context: Context) {
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = colorPRIME.copy(alpha = 0.5f)
     val buttonColor = remember { mutableStateOf(colorPRIME) }
@@ -301,9 +304,6 @@ fun RowScope.Button6(context: Context, onNavigate: (String) -> Unit) {
     Button(
         onClick = {
             handleButton6Click(context)
-//           onNavigate("Cast")
-            val intent = Intent(context, CastActivity::class.java)
-            context.startActivity(intent)
         },
         modifier = Modifier
             .weight(1f)
@@ -323,14 +323,73 @@ fun RowScope.Button6(context: Context, onNavigate: (String) -> Unit) {
     }
 }
 
+@Composable
+fun RowScope.Button7(context: Context) {
+    val colorPRIME = MaterialTheme.colorScheme.primary
+    val colorSECOND = colorPRIME.copy(alpha = 0.5f)
+    val buttonColor = remember { mutableStateOf(colorPRIME) }
 
-
-fun handleButton1Click(context: Context) {
-    Toast.makeText(context, "Caution: Experimental!\n May be unstable.", Toast.LENGTH_SHORT).show()
+    Button(
+        onClick = {
+            handleButton7Click(context)
+        },
+        modifier = Modifier
+            .weight(1f)
+            .padding(8.dp)
+            .onFocusChanged { focusState ->
+                buttonColor.value = if (focusState.isFocused) {
+                    colorSECOND
+                } else {
+                    colorPRIME
+                }
+            },
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
+        contentPadding = PaddingValues(2.dp)
+    ) {
+        ButtonContent("---", Icons.Default.Terrain)
+    }
 }
 
-fun handleButton2Click(context: Context) {
+@Composable
+fun RowScope.Button8(context: Context) {
+    val colorPRIME = MaterialTheme.colorScheme.primary
+    val colorSECOND = colorPRIME.copy(alpha = 0.5f)
+    val buttonColor = remember { mutableStateOf(colorPRIME) }
+
+    Button(
+        onClick = {
+            handleButton8Click(context)
+        },
+        modifier = Modifier
+            .weight(1f)
+            .padding(8.dp)
+            .onFocusChanged { focusState ->
+                buttonColor.value = if (focusState.isFocused) {
+                    colorSECOND
+                } else {
+                    colorPRIME
+                }
+            },
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
+        contentPadding = PaddingValues(2.dp)
+    ) {
+        ButtonContent("CAST", Icons.Default.Cast)
+    }
+}
+
+
+
+
+fun handleButton1Click(context: Context, onNavigate: (String) -> Unit) {
+    Toast.makeText(context, "Caution: Experimental!\n May be unstable.", Toast.LENGTH_SHORT).show()
+    onNavigate("Runner")
+}
+
+fun handleButton2Click(context: Context, onNavigate: (String) -> Unit) {
     Toast.makeText(context, "Retrieving system information...", Toast.LENGTH_SHORT).show()
+    onNavigate("Info")
 }
 
 fun handleButton3Click(context: Context) {
@@ -343,10 +402,22 @@ fun handleButton4Click(context: Context) {
     context.startActivity(intent)
 }
 
-fun handleButton5Click(context: Context) {
+fun handleButton5Click(context: Context, onNavigate: (String) -> Unit) {
+    onNavigate("Login")
     Toast.makeText(context, "Pending Implementation", Toast.LENGTH_SHORT).show()
 }
 
 fun handleButton6Click(context: Context) {
-    Toast.makeText(context, "Pending ImplementationX", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "Demo Stream Playing", Toast.LENGTH_SHORT).show()
+    val intent = Intent(context, ExoplayerActivity::class.java)
+    context.startActivity(intent)
+}
+
+fun handleButton7Click(context: Context) {
+    Toast.makeText(context, "Pending Implementation", Toast.LENGTH_SHORT).show()
+}
+
+fun handleButton8Click(context: Context) {
+    val intent = Intent(context, CastActivity::class.java)
+    context.startActivity(intent)
 }

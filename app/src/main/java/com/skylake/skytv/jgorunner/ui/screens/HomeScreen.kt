@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.ExitToApp
+import androidx.compose.material.icons.twotone.Cast
+import androidx.compose.material.icons.twotone.CastConnected
 import androidx.compose.material.icons.twotone.Deblur
 import androidx.compose.material.icons.twotone.LiveTv
 import androidx.compose.material.icons.twotone.PlayArrow
@@ -193,7 +195,9 @@ fun HomeScreen(
             ) {
                 onWebTVButtonClick()
             }
-            DebugButton {
+            DebugButton(
+                enabled = isServerRunning
+            ) {
                 onDebugButtonClick()
             }
             ExitButton {
@@ -352,6 +356,7 @@ fun RowScope.WebTVButton(
 
 @Composable
 fun RowScope.DebugButton(
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val colorPRIME = MaterialTheme.colorScheme.primary
@@ -373,9 +378,10 @@ fun RowScope.DebugButton(
             },
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
-        contentPadding = PaddingValues(2.dp)
+        contentPadding = PaddingValues(2.dp),
+        enabled = enabled
     ) {
-        ButtonContent("Debug", Icons.TwoTone.Deblur)
+        ButtonContent("Cast", Icons.TwoTone.Cast)
     }
 }
 
