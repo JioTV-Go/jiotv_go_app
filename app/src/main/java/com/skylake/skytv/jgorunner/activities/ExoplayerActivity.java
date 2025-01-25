@@ -152,11 +152,6 @@ public class ExoplayerActivity extends ComponentActivity {
         }
     }
 
-<<<<<<< Updated upstream
-=======
-
-
->>>>>>> Stashed changes
     @Override
     protected void onNewIntent(@NonNull Intent intent) {
         super.onNewIntent(intent);

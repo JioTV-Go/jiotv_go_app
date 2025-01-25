@@ -2,7 +2,6 @@ package com.skylake.skytv.jgorunner.activities
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.compose.setContent
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.screens.CastScreen
@@ -37,10 +36,6 @@ class CastActivity : AppCompatActivity() {
         }
 
         url = String.format(Locale.getDefault(), DEFAULT_URL_TEMPLATE, savedPortNumber) + extraFilterUrl
-
-        Log.d("DIXXc", url)
-
-        Log.d("DIX-Z", "--START")
 
         setContent {
             CastScreen(

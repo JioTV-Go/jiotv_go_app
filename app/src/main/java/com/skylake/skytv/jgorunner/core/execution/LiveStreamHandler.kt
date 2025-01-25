@@ -1,4 +1,4 @@
-package com.skylake.skytv.jgorunner.activities
+package com.skylake.skytv.jgorunner.core.execution
 
 import android.app.Activity.CONNECTIVITY_SERVICE
 import android.content.Context
@@ -9,7 +9,6 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.ReturnCode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,9 +16,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.net.Inet4Address
 
-
-
-fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
+fun crosscode(
+    context: Context,
+    videoUrl: String,
+    onProcessingStart: () -> Unit,
+    onProcessingEnd: () -> Unit
+) {
+    val TAG = "LiveHandler-DIX"
     val ipadd = getPublicJTVServerURL(context)
 
     fun ensureM3U8Suffix(videoUrl: String) =
@@ -28,37 +31,35 @@ fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
     var updatedUrl = ensureM3U8Suffix(videoUrl)
     updatedUrl = updatedUrl.replace("localhost", ipadd)
 
-    Log.d("DIX-updated url", updatedUrl)
-
     val chromecastport = "5349"
 
     val ipadd2 = "http://$ipadd:$chromecastport/"
-    Log.d("DIX-ip url", ipadd2)
+    Log.d(TAG, ipadd2)
 
     var vFinisher = true
 
     fun executeFFmpegSession() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                onProcessingStart()
                 var logsStopped = false
                 var lastLogTime = System.currentTimeMillis()
 
-                val session: FFmpegSession = FFmpegKit.executeAsync(
+                FFmpegKit.executeAsync(
                     "-i $updatedUrl -c copy -f mp4 -movflags frag_keyframe+empty_moov -listen 1 -bsf:a aac_adtstoasc $ipadd2",
-
 
                     { ffmpegSession ->
                         launch(Dispatchers.Main) {
                             when {
                                 ReturnCode.isSuccess(ffmpegSession.returnCode) -> {
-                                    Log.d("DIX-DIZ", "--SUCCESS")
+                                    Log.d(TAG, "--SUCCESS")
                                 }
                                 ReturnCode.isCancel(ffmpegSession.returnCode) -> {
-                                    Log.d("DIX-DIZ", "--CANCEL")
+                                    Log.d(TAG, "--CANCEL")
                                 }
                                 else -> {
                                     Log.d(
-                                        "DIX-DIZ",
+                                        TAG,
                                         "Command failed with state ${ffmpegSession.state} and rc ${ffmpegSession.returnCode}.${ffmpegSession.failStackTrace}"
                                     )
                                 }
@@ -75,7 +76,7 @@ fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
                                     "Port address already in use. Restarting session.",
                                     Toast.LENGTH_LONG
                                 ).show()
-                                Log.d("DIX-Error", "Address already in use error detected")
+                                Log.d(TAG, "Address already in use error detected")
                             }
 
                             FFmpegKit.cancel()
@@ -103,12 +104,13 @@ fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
                             launch(Dispatchers.Main) {
                                 Toast.makeText(
                                     context,
-                                    "Video processing finished",
+                                    "Playing Live Stream",
                                     Toast.LENGTH_LONG
                                 ).show()
-                                Log.d("DIX-Delay", "Video processing finished")
-                                castVideo(context, ipadd2)
-                                Log.d("DIX-Delay", "SENT CASTVIDEO")
+                                Log.d(TAG, "Video processing finished")
+                                castMediaPlayer(context, ipadd2)
+                                Log.d(TAG, "SENT CASTVIDEO")
+                                onProcessingEnd()
                             }
                             break
                         }
@@ -116,15 +118,15 @@ fun crosscode(context: Context, currentChannelName: String, videoUrl: String) {
                 }
 
             } catch (e: Exception) {
-                Log.e("DIX-DIZ", "Error executing FFmpeg command", e)
+                Log.e(TAG, "Error executing FFmpeg command", e)
+                onProcessingEnd()
             }
         }
     }
 
     executeFFmpegSession()
-
-
 }
+
 
 private fun getPublicJTVServerURL(context: Context): String {
     val connectivityManager =
