@@ -113,7 +113,7 @@ public class ExoplayerActivity extends ComponentActivity {
         }
 
         // Fix potential issue with "//.m3u8"
-        videoUrl = videoUrl.replace("//.m3u8", "/.m3u8");
+        videoUrl = videoUrl.replace("//.m3u8", ".m3u8");
 
         return videoUrl;
     }
@@ -152,6 +152,11 @@ public class ExoplayerActivity extends ComponentActivity {
         }
     }
 
+<<<<<<< Updated upstream
+=======
+
+
+>>>>>>> Stashed changes
     @Override
     protected void onNewIntent(@NonNull Intent intent) {
         super.onNewIntent(intent);
