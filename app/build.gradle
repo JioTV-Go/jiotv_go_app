@@ -52,6 +52,8 @@ android {
     packagingOptions {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
+//            exclude "lib/x86/**"
+//            exclude "lib/x86_64/**"
         }
     }
 }
@@ -81,8 +83,8 @@ dependencies {
     implementation libs.androidx.appcompat
     implementation libs.androidx.mediarouter
 
-    implementation libs.ffmpeg.kit.full.gpl
-
+//    Skipping FFMPEG
+//    implementation 'com.arthenica:ffmpeg-kit-min:6.0-2'
 
     testImplementation libs.junit
 

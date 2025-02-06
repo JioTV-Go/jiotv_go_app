@@ -37,7 +37,8 @@ import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.skylake.skytv.jgorunner.R
-import com.skylake.skytv.jgorunner.core.execution.crosscode
+import com.skylake.skytv.jgorunner.core.execution.castMediaPlayer
+//import com.skylake.skytv.jgorunner.core.execution.crosscode
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import org.json.JSONException
 import org.json.JSONObject
@@ -265,14 +266,19 @@ private class CustomWebViewClient(
             if (newPlayerURL != null) {
                 Log.d(TAG2, newPlayerURL)
                 // Cast Session Skipper
-                // if (true) {
+//                 if (true) {
                 if (isSessionConnected.value) {
-                    crosscode(
-                        context = context,
-                        videoUrl = newPlayerURL,
-                        onProcessingStart = { isProcessing.value = true },
-                        onProcessingEnd = { isProcessing.value = false }
-                    )
+                    // Skipping CrossCode [FFMPEGKIT]
+//                    crosscode(
+//                        context = context,
+//                        videoUrl = newPlayerURL,
+//                        onProcessingStart = { isProcessing.value = true },
+//                        onProcessingEnd = { isProcessing.value = false }
+//                    )
+
+                    // Direct Streaming - only few channels are working
+                    castMediaPlayer(context, newPlayerURL)
+
                 } else {
                     Log.d(TAG,"Not connected to any device")
                     Toast.makeText(

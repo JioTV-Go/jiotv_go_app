@@ -381,7 +381,7 @@ fun RowScope.DebugButton(
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
     ) {
-        ButtonContent("Cast", Icons.TwoTone.Cast)
+        ButtonContent("Debug", Icons.TwoTone.Deblur)
     }
 }
 

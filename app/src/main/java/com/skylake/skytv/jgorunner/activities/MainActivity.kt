@@ -226,9 +226,10 @@ class MainActivity : ComponentActivity() {
                                     startActivity(intent)
                                 },
                                 onDebugButtonClick = {
-                                    val intent =
-                                        Intent(this@MainActivity, CastActivity::class.java)
-                                    startActivity(intent)
+                                    currentScreen = "Debug"
+//                                    val intent =
+//                                        Intent(this@MainActivity, CastActivity::class.java)
+//                                    startActivity(intent)
                                 },
                                 onExitButtonClick = {
                                     stopBinary(
