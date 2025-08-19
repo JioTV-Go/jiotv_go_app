@@ -46,7 +46,7 @@ All the core features you enjoyed in CustTermux are here in JTV-GO Server, with 
 
 ### 📥 Installation
 
-1. **Download the APK**: Grab the latest release from the [releases page](https://github.com/JioTV-Go/jiotv_go_app/releases).
+1. **Download the APK**: Grab the latest release from the [releases page](https://github.com/atanuroy22/jiotv_go_app/releases).
 
 2. **Install the APK**:
    - Enable installation from unknown sources in your TV's settings.
@@ -54,7 +54,7 @@ All the core features you enjoyed in CustTermux are here in JTV-GO Server, with 
 
 3. **Grant Permissions**: Ensure JTV-GO Server has the necessary permissions for storage and network access to function properly. For best performance, confirm all permissions during the initial setup.
 
-[<img src="https://i.imgur.com/GTVknqJt.jpg" alt="Download Button">](https://github.com/JioTV-Go/jiotv_go_app/releases)
+[<img src="https://i.imgur.com/GTVknqJt.jpg" alt="Download Button">](https://github.com/atanuroy22/jiotv_go_app/releases)
 
 ---
 
