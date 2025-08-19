@@ -638,7 +638,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Global 7s loop to enforce auto-play of first channel if no player is active
+        // Global 20s loop to enforce auto-play of first channel if no player is active
         startGlobalAutoPlayLoop()
     }
 
