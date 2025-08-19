@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
     private var showRedirectPopup by mutableStateOf(false)
     private var shouldLaunchIPTV by mutableStateOf(false)
     private var countdownJob: Job? = null
+    private var autoRecheckJob: Job? = null
 
     private var downloadProgress by mutableStateOf<DownloadProgress?>(null)
     private var isSwitchOnForAutoStartForeground by mutableStateOf(false)
@@ -161,6 +162,8 @@ class MainActivity : ComponentActivity() {
             preferenceManager.myPrefs.operationMODE = -1
             preferenceManager.myPrefs.selectedScreenTV = "0"
             preferenceManager.myPrefs.selectedRemoteNavTV = "0"
+            // Auto-play first TV channel by default on first run
+            preferenceManager.myPrefs.startTvAutomatically = false
             preferenceManager.savePreferences()
         }
 
@@ -634,6 +637,89 @@ class MainActivity : ComponentActivity() {
                     checkForUpdates()
             }
         }
+
+        // Global 7s loop to enforce auto-play of first channel if no player is active
+        startGlobalAutoPlayLoop()
+    }
+
+    private fun startGlobalAutoPlayLoop() {
+        autoRecheckJob?.cancel()
+        autoRecheckJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (true) {
+                try {
+                    val pref = SkySharedPref.getInstance(this@MainActivity)
+                    val isTvPlayerActive = pref.myPrefs.tvPlayerActive
+                    val isAuto = pref.myPrefs.startTvAutomatically
+                    val port = pref.myPrefs.jtvGoServerPort
+                    if (isAuto && !isTvPlayerActive) {
+                        val baseUrl = "http://localhost:$port"
+                        val suppressUntil = pref.myPrefs.autoPlaySuppressUntil
+                        val nowTs = System.currentTimeMillis()
+                        if (suppressUntil > nowTs) {
+                            // Within user-action grace period: do nothing
+                            kotlinx.coroutines.delay(2000)
+                            continue
+                        }
+
+                        val response = com.skylake.skytv.jgorunner.ui.dev.ChannelUtils.fetchChannels("$baseUrl/channels")
+                        // Apply user filters from preferences
+                        val categoryIds = pref.myPrefs.filterCI
+                            ?.split(",")
+                            ?.mapNotNull { it.trim().toIntOrNull() }
+                            ?.filter { it != 0 }
+                            ?.takeIf { it.isNotEmpty() }
+                        val languageIds = pref.myPrefs.filterLI
+                            ?.split(",")
+                            ?.mapNotNull { it.trim().toIntOrNull() }
+                            ?.filter { it != 0 }
+                            ?.takeIf { it.isNotEmpty() }
+                        val list = com.skylake.skytv.jgorunner.ui.dev.ChannelUtils.filterChannels(
+                            response,
+                            languageIds = languageIds,
+                            categoryIds = categoryIds,
+                            isHD = null
+                        )
+                        if (!list.isNullOrEmpty()) {
+                            // Choose last-clicked channel if it belongs to the filtered set; otherwise first filtered
+                            val prefCurrUrl = pref.myPrefs.currChannelUrl
+                            val selected = if (!prefCurrUrl.isNullOrEmpty()) {
+                                list.find { it.channel_url == prefCurrUrl } ?: list.first()
+                            } else list.first()
+                            val selectedIndex = list.indexOf(selected).coerceAtLeast(0)
+                            launch(Dispatchers.Main) {
+                                try {
+                                    val intent = Intent(this@MainActivity, com.skylake.skytv.jgorunner.services.player.ExoPlayJet::class.java).apply {
+                                        putExtra("zone", "TV")
+                                        putParcelableArrayListExtra(
+                                            "channel_list_data",
+                                            java.util.ArrayList(list.map { ch ->
+                                                com.skylake.skytv.jgorunner.activities.ChannelInfo(
+                                                    ch.channel_url ?: "",
+                                                    "http://localhost:$port/jtvimage/${ch.logoUrl ?: ""}",
+                                                    ch.channel_name ?: ""
+                                                )
+                                            })
+                                        )
+                                        putExtra("current_channel_index", selectedIndex)
+                                        putExtra("video_url", selected.channel_url ?: "")
+                                        putExtra("logo_url", "http://localhost:$port/jtvimage/${selected.logoUrl ?: ""}")
+                                        putExtra("ch_name", selected.channel_name ?: "")
+                                    }
+                                    // Re-check active flag to avoid racing user clicks
+                                    val latest = SkySharedPref.getInstance(this@MainActivity)
+                                    if (!latest.myPrefs.tvPlayerActive) {
+                                        latest.myPrefs.tvPlayerActive = true
+                                        latest.savePreferences()
+                                        startActivity(intent)
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+                kotlinx.coroutines.delay(20000)
+            }
+        }
     }
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -679,6 +765,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // On full app exit, mark player inactive so loop resumes on next open
+        try {
+            val pref = SkySharedPref.getInstance(this)
+            pref.myPrefs.tvPlayerActive = false
+            pref.savePreferences()
+        } catch (_: Exception) {
+        }
+        // Stop server when app is closed
+        try {
+            stopBinary(
+                context = this,
+                onBinaryStopped = {}
+            )
+        } catch (_: Exception) { }
+        autoRecheckJob?.cancel()
         backPressedCallback.remove()
         unregisterReceiver(binaryStoppedReceiver)
     }

@@ -43,7 +43,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
-import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
 
 @OptIn(ExperimentalGlideComposeApi::class)
 @Composable
@@ -190,8 +189,7 @@ fun Main_LayoutTV(context: Context?) {
         }
 
         if (preferenceManager.myPrefs.startTvAutomatically) {
-            if (!AppStartTracker.shouldPlayChannel &&
-                filteredChannels.value.isNotEmpty()) {
+            if (filteredChannels.value.isNotEmpty()) {
 
                 val firstChannel = filteredChannels.value.first()
                 val intent = Intent(context, ExoPlayJet::class.java).apply {
@@ -239,8 +237,9 @@ fun Main_LayoutTV(context: Context?) {
                 preferenceManager.savePreferences()
             }
 
-            AppStartTracker.shouldPlayChannel = true
         }
+
+        // Recheck loop moved to MainActivity for global behavior across screens
 
     }
 
@@ -476,6 +475,16 @@ fun Main_LayoutTV(context: Context?) {
                         )
                     },
                     onClick = {
+                        // Mark player active immediately to prevent global loop from auto-starting first channel
+                        preferenceManager.myPrefs.tvPlayerActive = true
+                        preferenceManager.savePreferences()
+                        // Also persist current channel as the preferred one so next auto-play honors it
+                        preferenceManager.myPrefs.currChannelUrl = channel.channel_url
+                        preferenceManager.myPrefs.currChannelLogo = "http://localhost:$localPORT/jtvimage/${channel.logoUrl ?: ""}"
+                        preferenceManager.myPrefs.currChannelName = channel.channel_name
+                        // Suppress global auto-play for a grace period to avoid races
+                        preferenceManager.myPrefs.autoPlaySuppressUntil = System.currentTimeMillis() + 15000
+                        preferenceManager.savePreferences()
                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                             putExtra("video_url", channel.channel_url ?: "")
                             putExtra("zone", "TV")

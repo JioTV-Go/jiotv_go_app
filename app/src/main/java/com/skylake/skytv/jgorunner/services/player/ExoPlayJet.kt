@@ -58,6 +58,9 @@ class ExoPlayJet : ComponentActivity() {
 
 
         val prefManager = SkySharedPref.getInstance(this)
+        // Mark TV player active
+        prefManager.myPrefs.tvPlayerActive = true
+        prefManager.savePreferences()
 
         setContent {
             JGOTheme(themeOverride = prefManager.myPrefs.darkMODE) {
@@ -112,5 +115,21 @@ class ExoPlayJet : ComponentActivity() {
             channelNameState = intent.getStringExtra("ch_name") ?: defaultChannelName
             Log.d(TAG, "Loaded channel from direct intent extras: $channelNameState")
         }
+
+        // Persist current channel to preferences so the global loop can honor user choice next time
+        // try {
+        //     val pref = SkySharedPref.getInstance(this)
+        //     pref.myPrefs.currChannelUrl = videoUrlState
+        //     pref.myPrefs.currChannelLogo = logoUrlState
+        //     pref.myPrefs.currChannelName = channelNameState
+        //     pref.savePreferences()
+        // } catch (_: Exception) { }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        val prefManager = SkySharedPref.getInstance(this)
+        prefManager.myPrefs.tvPlayerActive = false
+        prefManager.savePreferences()
     }
 }

@@ -80,6 +80,10 @@ public class ExoplayerActivity extends ComponentActivity {
         skyPref = SkySharedPref.getInstance(this);
         filterQX = skyPref.getMyPrefs().getFilterQX();
 
+        // Mark TV/Web player active
+        skyPref.getMyPrefs().setTvPlayerActive(true);
+        skyPref.savePreferences();
+
         // Intent handling
         Intent intent = getIntent();
         String videoUrl = intent.getStringExtra("video_url");
@@ -191,6 +195,16 @@ public class ExoplayerActivity extends ComponentActivity {
     protected void onStop() {
         super.onStop();
         releasePlayer();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Mark player inactive
+        if (skyPref != null) {
+            skyPref.getMyPrefs().setTvPlayerActive(false);
+            skyPref.savePreferences();
+        }
     }
 
     private void releasePlayer() {

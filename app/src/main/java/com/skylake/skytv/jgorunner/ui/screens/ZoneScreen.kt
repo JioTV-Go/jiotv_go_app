@@ -104,6 +104,16 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     var selectedTabIndex by remember { mutableIntStateOf(savedTabIndex) }
     val tabFocusRequester = remember { FocusRequester() }
 
+    // Ensure auto-play is enabled on TV
+    LaunchedEffect(Unit) {
+        if (isRemoteNavigation) {
+            preferenceManager.myPrefs.startTvAutomatically = true
+            // Reset playback-active and first-play gate when entering TV screen
+            preferenceManager.myPrefs.tvPlayerActive = false
+            preferenceManager.savePreferences()
+        }
+    }
+
     // Snackbar state
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()

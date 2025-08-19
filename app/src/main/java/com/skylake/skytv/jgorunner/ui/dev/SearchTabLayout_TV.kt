@@ -138,8 +138,19 @@ fun SearchTabLayoutTV(context: Context, focusRequester: FocusRequester) {
                     },
                     onClick = {
                         Log.d("HT", channel.channel_name)
+                        // Mark player active immediately so global loop doesn't override user choice
+                        val pref = SkySharedPref.getInstance(context)
+                        pref.myPrefs.startTvAutomatically = true
+                        pref.myPrefs.tvPlayerActive = true
+                        // persist choice for next loop
+                        pref.myPrefs.currChannelUrl = channel.channel_url
+                        pref.myPrefs.currChannelLogo = "http://localhost:${localPORT}/jtvimage/${channel.logoUrl}"
+                        pref.myPrefs.currChannelName = channel.channel_name
+                        pref.myPrefs.autoPlaySuppressUntil = System.currentTimeMillis() + 15000
+                        pref.savePreferences()
                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                             putExtra("video_url", channel.channel_url)
+                            putExtra("zone", "TV")
                         }
                         startActivity(context, intent, null)
 

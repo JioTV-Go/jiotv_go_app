@@ -55,6 +55,8 @@ import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.dev.ChannelUtils
 import com.skylake.skytv.jgorunner.ui.dev.extractChannelIdFromPlayUrl
 import kotlinx.coroutines.delay
+import android.os.Handler
+import android.os.Looper
 
 const val TAG = "ExoJetScreen"
 
@@ -89,7 +91,9 @@ fun ExoPlayJetScreen(
         initializePlayer(
             getCurrentVideoUrl = { channelList?.getOrNull(currentIndex)?.videoUrl ?: videoUrl },
             context = context,
-            retryCountRef = retryCountRef
+            retryCountRef = retryCountRef,
+            retryDelayMs = 2000L,
+            onBeforeRetry = null
         )
     }
 
@@ -288,7 +292,9 @@ fun ChannelInfoOverlay(
 fun initializePlayer(
     getCurrentVideoUrl: () -> String,
     context: Context,
-    retryCountRef: MutableState<Int>
+    retryCountRef: MutableState<Int>,
+    retryDelayMs: Long = 2000L,
+    onBeforeRetry: (() -> Unit)? = null
 ): ExoPlayer {
     val httpDataSourceFactory = DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)
     val mediaSourceFactory = DefaultMediaSourceFactory(context).setDataSourceFactory(httpDataSourceFactory)
@@ -315,7 +321,12 @@ fun initializePlayer(
                 retryCountRef.value++
                 Log.d(TAG, "Retrying playback: attempt ${retryCountRef.value}")
                 player.stop()
-                prepareAndPlay()
+                onBeforeRetry?.invoke()
+                // Wait a bit then retry
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                handler.postDelayed({
+                    prepareAndPlay()
+                }, retryDelayMs)
             } else {
                 Toast.makeText(context, "Playback failed after $maxRetries attempts", Toast.LENGTH_SHORT).show()
                 Log.e(TAG, "Playback permanently failed.")
