@@ -23,7 +23,7 @@ object ApplicationUpdater {
     private const val TAG = "JTVGo::AppUpdater"
 
     private const val LATEST_RELEASE_INFO_URL =
-        "https://api.github.com/repos/JioTV-Go/jiotv_go_app/releases/latest"
+        "https://api.github.com/repos/atanuroy22/jiotv_go_app/releases/latest"
 
     suspend fun fetchLatestReleaseInfo() =
         withContext(Dispatchers.IO) {
