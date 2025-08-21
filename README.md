@@ -58,8 +58,6 @@ All the core features you enjoyed in CustTermux are here in JTV-GO Server, with 
 
 3. **Grant Permissions**: Ensure JTV-GO Server has the necessary permissions for storage and network access to function properly. For best performance, confirm all permissions during the initial setup.
 
-[![Download APK](https://custom-icon-badges.demolab.com/badge/-Download-blue?style=for-the-badge&logo=download&logoColor=white "Download APK")](https://github.com/atanuroy22/jiotv_go_app/releases)
-
 ---
 
 ### 🚀 Usage
