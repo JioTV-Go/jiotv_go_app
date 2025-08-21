@@ -11,7 +11,7 @@
 <p align="center">Access JioTV Go - streamlined for quick access and optimal performance! </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.9-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1.11-blue" alt="Version">
   <img src="https://img.shields.io/badge/build-beta-FF8135" alt="Build Status">
   <img src="https://img.shields.io/badge/license-MIT-F94877" alt="License">
 </p>
@@ -23,9 +23,11 @@
 
 <table>
   <tr>
+    <td><img src="https://github.com/atanuroy22/jiotv_go_app/blob/main/ui.jpg" alt="Screenshot 0" width="400"/></td>
     <td><img src="https://i.imgur.com/pp2oLIY.png" alt="Screenshot 1" width="400"/></td>
     <td><img src="https://i.imgur.com/AyPtIH4.png" alt="Screenshot 2" width="400"/></td>
     <td><img src="https://i.imgur.com/P2rZdfS.png" alt="Screenshot 3" width="400"/></td>
+    
   </tr>
 </table>
 
@@ -49,7 +51,8 @@ All the core features you enjoyed in CustTermux are here in JTV-GO Server, with 
 1. **Download the APK**: With a single click of the button below, latest release will open.
 
 <!-- BEGIN LATEST DOWNLOAD BUTTON -->
-[![Download APK](https://custom-icon-badges.demolab.com/badge/-Download-blue?style=for-the-badge&logo=download&logoColor=white "Download APK")](https://github.com/atanuroy22/jiotv_go_app/releases)
+[![Download APK](https://custom-icon-badges.demolab.com/badge/-Download-blue?style=for-the-badge&logo=download&logoColor=white "Download APK")](https://github.com/atanuroy22/jiotv_go_app/releases/latest)
+
 <!-- END LATEST DOWNLOAD BUTTON -->
 
 2. **Install the APK**:
