@@ -77,6 +77,9 @@ import com.skylake.skytv.jgorunner.ui.dev.Main_LayoutTV
 import com.skylake.skytv.jgorunner.ui.dev.Main_LayoutTV_3rd
 import com.skylake.skytv.jgorunner.ui.dev.Main_Layout_3rd
 import com.skylake.skytv.jgorunner.ui.dev.ChannelUtils
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.skylake.skytv.jgorunner.ui.dev.M3UChannelExp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -372,52 +375,100 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     continue
                 }
 
-                val response = ChannelUtils.fetchChannels("$baseUrl/channels")
-                val categoryIds = preferenceManager.myPrefs.filterCI
-                    ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.filter { it != 0 }
-                    ?.takeIf { it.isNotEmpty() }
-                val languageIds = preferenceManager.myPrefs.filterLI
-                    ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.filter { it != 0 }
-                    ?.takeIf { it.isNotEmpty() }
+                // If experimental custom playlist is enabled, prefer it for autoplay
+                val useCustom = preferenceManager.myPrefs.customPlaylistSupport && !preferenceManager.myPrefs.showPLAYLIST
+                if (useCustom) {
+                    val json = preferenceManager.myPrefs.channelListJson
+                    val channels: List<M3UChannelExp> = try {
+                        if (!json.isNullOrBlank()) {
+                            val type = object : TypeToken<List<M3UChannelExp>>() {}.type
+                            Gson().fromJson<List<M3UChannelExp>>(json, type)
+                        } else emptyList()
+                    } catch (_: Exception) { emptyList() }
 
-                val list = ChannelUtils.filterChannels(
-                    response,
-                    languageIds = languageIds,
-                    categoryIds = categoryIds,
-                    isHD = null
-                )
-                if (list.isNotEmpty()) {
-                    val prefCurrUrl = preferenceManager.myPrefs.currChannelUrl
-                    val selected = if (!prefCurrUrl.isNullOrEmpty()) {
-                        list.find { it.channel_url == prefCurrUrl } ?: list.first()
-                    } else list.first()
-                    val selectedIndex = list.indexOf(selected).coerceAtLeast(0)
+                    val allChannels = channels.distinctBy { it.url }
+                    if (allChannels.isNotEmpty()) {
+                        val selectedCategory = preferenceManager.myPrefs.lastSelectedCategoryExp ?: "All"
+                        val filtered = if (selectedCategory == "All") allChannels else allChannels.filter { it.category == selectedCategory }
+                        val effectiveList = if (filtered.isNotEmpty()) filtered else allChannels
 
-                    // Use Android Context from composable param
-                    try {
-                        val intent = Intent(context, com.skylake.skytv.jgorunner.services.player.ExoPlayJet::class.java).apply {
-                            putExtra("zone", "TV")
-                            putParcelableArrayListExtra(
-                                "channel_list_data",
-                                java.util.ArrayList(list.map { ch ->
-                                    com.skylake.skytv.jgorunner.activities.ChannelInfo(
-                                        ch.channel_url ?: "",
-                                        "http://localhost:$port/jtvimage/${ch.logoUrl ?: ""}",
-                                        ch.channel_name ?: ""
-                                    )
-                                })
-                            )
-                            putExtra("current_channel_index", selectedIndex)
-                            putExtra("video_url", selected.channel_url ?: "")
-                            putExtra("logo_url", "http://localhost:$port/jtvimage/${selected.logoUrl ?: ""}")
-                            putExtra("ch_name", selected.channel_name ?: "")
-                        }
+                        val prefCurrUrl = preferenceManager.myPrefs.currChannelUrl
+                        val selected = if (!prefCurrUrl.isNullOrEmpty()) {
+                            effectiveList.find { it.url == prefCurrUrl } ?: effectiveList.first()
+                        } else effectiveList.first()
+                        val selectedIndex = effectiveList.indexOf(selected).coerceAtLeast(0)
 
-                        // Set active to avoid race
-                        preferenceManager.myPrefs.tvPlayerActive = true
-                        preferenceManager.savePreferences()
-                        ContextCompat.startActivity(context, intent, null)
-                    } catch (_: Exception) { }
+                        try {
+                            val intent = Intent(context, com.skylake.skytv.jgorunner.services.player.ExoPlayJet::class.java).apply {
+                                putExtra("zone", "TV")
+                                putParcelableArrayListExtra(
+                                    "channel_list_data",
+                                    java.util.ArrayList(effectiveList.map { ch ->
+                                        com.skylake.skytv.jgorunner.activities.ChannelInfo(
+                                            ch.url,
+                                            ch.logo ?: "",
+                                            ch.name
+                                        )
+                                    })
+                                )
+                                putExtra("current_channel_index", selectedIndex)
+                                putExtra("video_url", selected.url)
+                                putExtra("logo_url", selected.logo ?: "")
+                                putExtra("ch_name", selected.name)
+                            }
+
+                            preferenceManager.myPrefs.tvPlayerActive = true
+                            preferenceManager.savePreferences()
+                            ContextCompat.startActivity(context, intent, null)
+                        } catch (_: Exception) { }
+                    }
+                } else {
+                    // Default zone UI: fetch channels from local server and autoplay
+                    val response = ChannelUtils.fetchChannels("$baseUrl/channels")
+                    val categoryIds = preferenceManager.myPrefs.filterCI
+                        ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.filter { it != 0 }
+                        ?.takeIf { it.isNotEmpty() }
+                    val languageIds = preferenceManager.myPrefs.filterLI
+                        ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.filter { it != 0 }
+                        ?.takeIf { it.isNotEmpty() }
+
+                    val list = ChannelUtils.filterChannels(
+                        response,
+                        languageIds = languageIds,
+                        categoryIds = categoryIds,
+                        isHD = null
+                    )
+                    if (list.isNotEmpty()) {
+                        val prefCurrUrl = preferenceManager.myPrefs.currChannelUrl
+                        val selected = if (!prefCurrUrl.isNullOrEmpty()) {
+                            list.find { it.channel_url == prefCurrUrl } ?: list.first()
+                        } else list.first()
+                        val selectedIndex = list.indexOf(selected).coerceAtLeast(0)
+
+                        try {
+                            val intent = Intent(context, com.skylake.skytv.jgorunner.services.player.ExoPlayJet::class.java).apply {
+                                putExtra("zone", "TV")
+                                putParcelableArrayListExtra(
+                                    "channel_list_data",
+                                    java.util.ArrayList(list.map { ch ->
+                                        com.skylake.skytv.jgorunner.activities.ChannelInfo(
+                                            ch.channel_url ?: "",
+                                            "http://localhost:$port/jtvimage/${ch.logoUrl ?: ""}",
+                                            ch.channel_name ?: ""
+                                        )
+                                    })
+                                )
+                                putExtra("current_channel_index", selectedIndex)
+                                putExtra("video_url", selected.channel_url ?: "")
+                                putExtra("logo_url", "http://localhost:$port/jtvimage/${selected.logoUrl ?: ""}")
+                                putExtra("ch_name", selected.channel_name ?: "")
+                            }
+
+                            preferenceManager.myPrefs.tvPlayerActive = true
+                            preferenceManager.savePreferences()
+                            ContextCompat.startActivity(context, intent, null)
+                        } catch (_: Exception) { }
+                    }
                 }
             } catch (_: Exception) { }
 
