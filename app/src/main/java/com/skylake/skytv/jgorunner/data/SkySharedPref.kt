@@ -151,9 +151,16 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("currChannelUrl") var currChannelUrl: String? = "",
         @SharedPrefKey("unitHolder") var unitHolder: Int = 0,
         @SharedPrefKey("customPlaylistSupport") var customPlaylistSupport: Boolean = false,
+        
         @SharedPrefKey("genericTvIcon") var genericTvIcon: Boolean = false,
+        // tv player active
+        @SharedPrefKey("tv_player_active") var tvPlayerActive: Boolean = false,
+        @SharedPrefKey("autoPlaySuppressUntil") var autoPlaySuppressUntil: Long = 0L,
 
-
+        // Zone TV specific settings(20s)
+        @SharedPrefKey("zoneAutoLoopEnabled") var zoneAutoLoopEnabled: Boolean = false,
+        @SharedPrefKey("zoneAutoLoopIntervalSec") var zoneAutoLoopIntervalSec: Int = 20,
+        @SharedPrefKey("isInZoneScreen") var isInZoneScreen: Boolean = false,
     )
 
 

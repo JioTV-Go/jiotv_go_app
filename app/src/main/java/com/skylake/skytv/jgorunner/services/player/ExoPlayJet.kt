@@ -113,4 +113,12 @@ class ExoPlayJet : ComponentActivity() {
             Log.d(TAG, "Loaded channel from direct intent extras: $channelNameState")
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Mark player as inactive for Zone TV autoplay
+        val prefManager = SkySharedPref.getInstance(this)
+        prefManager.myPrefs.tvPlayerActive = false
+        prefManager.savePreferences()
+    }
 }
