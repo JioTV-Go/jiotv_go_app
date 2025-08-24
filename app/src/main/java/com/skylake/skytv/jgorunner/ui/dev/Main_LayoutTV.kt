@@ -189,7 +189,7 @@ fun Main_LayoutTV(context: Context?) {
             fetched = true
         }
 
-        if (preferenceManager.myPrefs.startTvAutomatically) {
+        if (preferenceManager.myPrefs.startTvAutomatically || preferenceManager.myPrefs.zoneAutoLoopEnabled) {
             if (!AppStartTracker.shouldPlayChannel &&
                 filteredChannels.value.isNotEmpty()) {
 
