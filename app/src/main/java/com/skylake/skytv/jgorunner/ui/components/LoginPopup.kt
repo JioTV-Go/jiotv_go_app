@@ -37,7 +37,7 @@ fun LoginPopup(
     dismissButtonText: String,
     onConfirm: () -> Unit,
     onDismiss: (() -> Unit)?,
-    onSettingsClick: (Any?) -> Unit // New parameter for handling the settings icon click
+    onSettingsClick: (Any?) -> Unit
 ) {
     LaunchedEffect(isVisible) {
         if (isVisible) {

@@ -34,6 +34,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BackupDialog(
     showDialog: Boolean,
@@ -96,7 +97,7 @@ fun BackupDialog(
 
                     // Loading dialog
                     if (isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                        CircularWavyProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                     }
 
                     // Success message

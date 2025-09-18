@@ -8,13 +8,14 @@ import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.isAccessible
 
-class SkySharedPref private constructor(context: Context) {
+class SkySharedPref(context: Context) {
     companion object {
         private const val PREF_NAME = "SkySharedPref"
 
         @Volatile
         private var instance: SkySharedPref? = null
 
+        @JvmStatic
         // Singleton instance
         fun getInstance(context: Context): SkySharedPref {
             return instance ?: synchronized(this) {
@@ -28,7 +29,6 @@ class SkySharedPref private constructor(context: Context) {
     private val editor: SharedPreferences.Editor = sharedPreferences.edit()
 
     var myPrefs = readFromSharedPreferences() // This will be updated with saved preferences
-        private set
 
     // Save all preferences
     fun savePreferences() {
@@ -125,10 +125,41 @@ class SkySharedPref private constructor(context: Context) {
         @SharedPrefKey("filterQ") var filterQ: String? = null,
         @SharedPrefKey("filterL") var filterL: String? = null,
         @SharedPrefKey("filterC") var filterC: String? = null,
+        @SharedPrefKey("filterQX") var filterQX: String? = null,
+        @SharedPrefKey("filterLX") var filterLX: String? = null,
+        @SharedPrefKey("filterCX") var filterCX: String? = null,
+        @SharedPrefKey("filterLI") var filterLI: String? = "",
+        @SharedPrefKey("filterCI") var filterCI: String? = "",
         @SharedPrefKey("login_chk") var loginChk: Boolean = true,
         @SharedPrefKey("cast_channel_name") var castChannelName: String? = "",
         @SharedPrefKey("cast_channel_logo") var castChannelLogo: String? = "",
+        @SharedPrefKey("lastFetchTime") var lastFetchTime: Int? = 0,
+        @SharedPrefKey("currentPort") var currentPort: Int = 0,
+        @SharedPrefKey("recentChannels") var recentChannels: String? = "",
+        @SharedPrefKey("operationMODE") var operationMODE: Int = 999,
+        @SharedPrefKey("darkMODE") var darkMODE: Boolean = false,
+        @SharedPrefKey("selectedScreenTV") var selectedScreenTV: String? = "0",
+        @SharedPrefKey("selectedRemoteNavTV") var selectedRemoteNavTV: String? = "0",
+        @SharedPrefKey("custURL") var custURL: String? = "",
+        @SharedPrefKey("channelListJson") var channelListJson: String? = "",
+        @SharedPrefKey("expDebug") var expDebug: Boolean = false,
+        @SharedPrefKey("last_selected_category_exp") var lastSelectedCategoryExp: String? = "All",
+        @SharedPrefKey("showPLAYLIST") var showPLAYLIST: Boolean = false,
+        @SharedPrefKey("showRecentTab") var showRecentTab: Boolean = false,
+        @SharedPrefKey("startTvAutomatically") var startTvAutomatically: Boolean = false,
+        @SharedPrefKey("startTvAutoDelay") var startTvAutoDelay: Boolean = false,
+        @SharedPrefKey("startTvAutoDelayTime") var startTvAutoDelayTime: Int = 2,
+        @SharedPrefKey("currChannelName") var currChannelName: String? = "",
+        @SharedPrefKey("currChannelLogo") var currChannelLogo: String? = "",
+        @SharedPrefKey("currChannelUrl") var currChannelUrl: String? = "",
+        @SharedPrefKey("unitHolder") var unitHolder: Int = 0,
+        @SharedPrefKey("customPlaylistSupport") var customPlaylistSupport: Boolean = false,
+        @SharedPrefKey("genericTvIcon") var genericTvIcon: Boolean = false,
+        @SharedPrefKey("epgDebug") var epgDebug: Boolean = false,
+
+
     )
+
 
     // Annotation class to define the key for SharedPreferences
     @Target(AnnotationTarget.PROPERTY)

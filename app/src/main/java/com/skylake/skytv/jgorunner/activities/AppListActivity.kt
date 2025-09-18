@@ -26,12 +26,12 @@ class AppListActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            JGOTheme {
+            JGOTheme(themeOverride = preferenceManager.myPrefs.darkMODE) {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     topBar = {
                         TopAppBar(
-                            title = { Text("App List") },
+                            title = { Text("Select IPTV player 📲") },
                             navigationIcon = {
                                 IconButton(onClick = { finish() }) {
                                     Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -58,10 +58,3 @@ class AppListActivity : ComponentActivity() {
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun PreviewAppListActivity() {
-    JGOTheme {
-        AppListActivity()
-    }
-}

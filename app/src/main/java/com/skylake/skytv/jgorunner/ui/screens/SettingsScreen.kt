@@ -1,8 +1,12 @@
 package com.skylake.skytv.jgorunner.ui.screens
 
+import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
@@ -27,6 +31,10 @@ import androidx.compose.material.icons.filled.Attribution
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BrowserUpdated
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Mediation
 import androidx.compose.material.icons.filled.Pix
@@ -39,9 +47,11 @@ import androidx.compose.material.icons.filled.Stream
 import androidx.compose.material.icons.filled.Timelapse
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -82,14 +92,24 @@ import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.core.data.JTVConfigurationManager
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.components.BackupDialog
+import com.skylake.skytv.jgorunner.ui.components.JTVModeSelectorPopup
 import com.skylake.skytv.jgorunner.ui.components.ModeSelectionDialog
 import com.skylake.skytv.jgorunner.ui.components.restoreBackup
+import android.os.Process
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import kotlin.system.exitProcess
 
+
+@SuppressLint("UnrememberedMutableState", "AutoboxingStateCreation")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     activity: ComponentActivity,
     checkForUpdates: () -> Unit,
+    onNavigate: (String) -> Unit,
     isSwitchOnForAutoStartForeground: Boolean,
     onAutoStartForegroundSwitch: (Boolean) -> Unit,
 ) {
@@ -104,7 +124,11 @@ fun SettingsScreen(
     fun applySettings() {
         preferenceManager.savePreferences()
     }
+
     // Retrieve saved switch states
+    val selectedIndex by remember {
+        mutableIntStateOf(preferenceManager.myPrefs.operationMODE)
+    }
     var isSwitchOnForLOCAL by remember {
         mutableStateOf(preferenceManager.myPrefs.serveLocal)
     }
@@ -130,6 +154,9 @@ fun SettingsScreen(
     var isSwitchOnCheckForUpdate by remember {
         mutableStateOf(preferenceManager.myPrefs.enableAutoUpdate)
     }
+    var isSwitchDarkMode by remember {
+        mutableStateOf(preferenceManager.myPrefs.darkMODE)
+    }
     var selectedIPTVTime by remember {
         mutableIntStateOf(preferenceManager.myPrefs.iptvLaunchCountdown)
     }
@@ -139,6 +166,7 @@ fun SettingsScreen(
 
     var showPortDialog by remember { mutableStateOf(false) }
     var showModeDialog by remember { mutableStateOf(false) }
+    var showOperationDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showBackupDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
@@ -184,6 +212,11 @@ fun SettingsScreen(
         applySettings()
     }
 
+    LaunchedEffect(isSwitchDarkMode) {
+        preferenceManager.myPrefs.darkMODE = isSwitchDarkMode
+        applySettings()
+    }
+
     LaunchedEffect(isLoginCheckEnabled) {
         preferenceManager.myPrefs.loginChk = isLoginCheckEnabled
         applySettings()
@@ -199,20 +232,54 @@ fun SettingsScreen(
         jtvConfigurationManager.saveJTVConfiguration()
     }
 
+    LaunchedEffect(selectedIndex) {
+        preferenceManager.myPrefs.operationMODE = selectedIndex
+        applySettings()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp)
+            .padding(10.dp)
     ) {
-        // TopAppBar
-        TopAppBar(
-            title = { Text(text = "Settings", fontSize = 30.sp, fontFamily = customFontFamily) },
+
+        Text(
+            text = "Settings",
+            fontSize = 24.sp,
+            fontFamily = customFontFamily,
+            color = MaterialTheme.colorScheme.onBackground,
+            style =  TextStyle.Default,
+            modifier = Modifier.padding(bottom = 10.dp)
         )
+
+
 
         // Content
         LazyColumn(
             modifier = Modifier.padding(top = 0.dp)
         ) {
+
+
+            item {
+                HorizontalDividerLineTr()
+            }
+
+
+            item {
+
+                val opMode =
+                    if (preferenceManager.myPrefs.operationMODE == 0) "Simple" else "Expert"
+                SettingItem(icon = Icons.Filled.Hub,
+                    title = "Operation Mode : $opMode",
+                    subtitle = "Select mode for app operation",
+                    onClick = { showOperationDialog = true })
+            }
+
+            item {
+                HorizontalDividerLineTrx("App Start")
+            }
+
+
             item {
                 SettingSwitchItem(icon = Icons.Filled.Pix,
                     title = "Auto Start Server",
@@ -245,8 +312,9 @@ fun SettingsScreen(
             }
 
             item {
-                HorizontalDividerLine()
+                HorizontalDividerLineTrx("Server Config")
             }
+
 
             item {
                 SettingSwitchItem(icon = Icons.Filled.Public,
@@ -277,14 +345,14 @@ fun SettingsScreen(
                 SettingSwitchItem(
                     icon = Icons.Filled.VerifiedUser,
                     title = "Login Checker",
-                    subtitle = "Toggle to enable or disable login checks",
+                    subtitle = if (isLoginCheckEnabled) "Enabled login checker" else "Disabled login checker",
                     isChecked = isLoginCheckEnabled,
                     onCheckedChange = { isChecked -> isLoginCheckEnabled = isChecked }
                 )
             }
 
             item {
-                HorizontalDividerLine()
+                HorizontalDividerLineTrx("IPTV")
             }
 
             item {
@@ -302,10 +370,24 @@ fun SettingsScreen(
                     title = "Auto IPTV",
                     subtitle = "Automatically start IPTV on app start",
                     isChecked = isSwitchOnForAutoIPTV,
-                    onCheckedChange = { isChecked -> isSwitchOnForAutoIPTV = isChecked }
+                    onCheckedChange = { isChecked ->
+                        isSwitchOnForAutoIPTV = isChecked
+                        val iptv = preferenceManager.myPrefs.iptvAppName
+                        if (isChecked && ( iptv == null || iptv == "No IPTV")) {
+                            val intent = Intent(activity, AppListActivity::class.java)
+                            activity.startActivity(intent)
+                        }
+                    }
                 )
             }
             val iptvNameSaved = preferenceManager.myPrefs.iptvAppName
+            val iptvPKGNameSaved = preferenceManager.myPrefs.iptvAppPackageName
+            val result = if (iptvPKGNameSaved == "tvzone" || iptvPKGNameSaved == "webtv") {
+                "No IPTV"
+            } else {
+                iptvNameSaved
+            }
+
             item {
                 Spacer(modifier = Modifier.height(12.dp))
                 SettingItem(
@@ -314,7 +396,7 @@ fun SettingsScreen(
                     subtitle = if (iptvNameSaved.isNullOrEmpty() || iptvNameSaved == "No IPTV") {
                         "Choose your preferred IPTV to start"
                     } else {
-                        "Selected IPTV: $iptvNameSaved"
+                        "Selected IPTV: $result"
                     },
                     onClick = {
                         val intent = Intent(activity, AppListActivity::class.java)
@@ -370,7 +452,6 @@ fun SettingsScreen(
                     icon = Icons.Filled.Mediation,
                     title = "Configure WEBTV filters",
                     subtitle = "Select default language, category, and quality.",
-                    showBadge = showNewBadge,
                     onClick = {
                         showModeDialog = true
                         showNewBadge = false
@@ -379,16 +460,27 @@ fun SettingsScreen(
             }
 
             item {
-                HorizontalDividerLine()
+                HorizontalDividerLineTrx("Miscellaneous")
+            }
+
+            if (true) {
+                item {
+                    SettingSwitchItem(icon = Icons.Filled.DarkMode,
+                        title = "Always Dark Mode",
+                        subtitle = "Toggle between dark and auto",
+                        isChecked = isSwitchDarkMode,
+                        onCheckedChange = { isChecked -> isSwitchDarkMode = isChecked })
+                }
             }
 
             item {
                 SettingSwitchItem(icon = Icons.Filled.SoupKitchen,
-                    title = "Check for auto updates",
+                    title = "Check for Auto Updates",
                     subtitle = "Check for updates when the app starts",
                     isChecked = isSwitchOnCheckForUpdate,
                     onCheckedChange = { isChecked -> isSwitchOnCheckForUpdate = isChecked })
             }
+
             item {
                 SettingItem(icon = Icons.Filled.ArrowCircleUp,
                     title = "Check for Updates Now",
@@ -415,6 +507,16 @@ fun SettingsScreen(
             }
 
             item {
+                SettingItem(icon = Icons.Filled.Insights,
+                    title = "Device Info & Logs",
+                    subtitle = "View technical data and logs for debugging.",
+                    showBadge = showNewBadge,
+                    onClick = {
+                       onNavigate("Info")
+                    })
+            }
+
+            item {
                 SettingItem(icon = Icons.Filled.RestartAlt,
                     title = "Reset All Settings",
                     subtitle = "Useful for troubleshooting and resolving issues.",
@@ -427,6 +529,19 @@ fun SettingsScreen(
 
     // Port Number Dialog
     if (showPortDialog) {
+
+        // safely clearing cache before port change
+        val sharedPref = context.getSharedPreferences("channel_cache", Context.MODE_PRIVATE)
+        try {
+            with(sharedPref.edit()) {
+                remove("channels_json")
+                apply()
+                Log.d("DIX-SetSec", "Cleared channel cache")
+            }
+        } catch (e: Exception) {
+            Log.e("DIX-SetSec", "Error message", e)
+        }
+
         Dialog(
             onDismissRequest = { showPortDialog = false },
             properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
@@ -549,6 +664,18 @@ fun SettingsScreen(
         }
     )
 
+    JTVModeSelectorPopup(
+        context = context,
+        isVisible = showOperationDialog,
+        preferenceManager = preferenceManager,
+        onModeSelected = {
+            showOperationDialog = false
+        },
+        onDismiss = {
+            showOperationDialog = false
+        }
+    )
+
     // Restart App Dialog
     if (showRestartAppDialog) {
         Dialog(
@@ -589,11 +716,32 @@ fun SettingsScreen(
     }
 }
 
+//fun restartApp(context: Context) {
+//    val intent = Intent(context, MainActivity::class.java)
+//    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+//    context.startActivity(intent)
+//    (context as? Activity)?.finish()
+//}
+
+@SuppressLint("ServiceCast")
 fun restartApp(context: Context) {
-    val intent = Intent(context, MainActivity::class.java)
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-    context.startActivity(intent)
-    (context as? Activity)?.finish()
+    val packageManager = context.packageManager
+    val intent = packageManager.getLaunchIntentForPackage(context.packageName)
+    intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+    val pendingIntent = PendingIntent.getActivity(
+        context,
+        0,
+        intent,
+        PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    alarmManager.set(
+        AlarmManager.RTC,
+        System.currentTimeMillis() + 100,
+        pendingIntent
+    )
+    Process.killProcess(Process.myPid())
+    exitProcess(0)
 }
 
 
@@ -676,13 +824,46 @@ fun SettingItem(
     }
 }
 
+
 @Composable
 fun HorizontalDividerLine() {
     HorizontalDivider(
         thickness = 2.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 4.dp)
     )
 }
 
+@Composable
+fun HorizontalDividerLineTr() {
+    HorizontalDivider(
+        thickness = 1.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    )
+}
+
+@Composable
+fun HorizontalDividerLineTrx(text: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(end = 8.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+        HorizontalDivider(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp),
+            color = Color.Gray
+        )
+    }
+}

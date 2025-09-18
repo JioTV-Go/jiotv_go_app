@@ -74,7 +74,7 @@ fun LoginScreen(context: Context) {
     val localPORT by remember {
         mutableIntStateOf(preferenceManager.myPrefs.jtvGoServerPort)
     }
-    var basefinURL = "http://localhost:$localPORT"
+    val basefinURL = "http://localhost:$localPORT"
 
     val glowColors = listOf(
         Color.Red,

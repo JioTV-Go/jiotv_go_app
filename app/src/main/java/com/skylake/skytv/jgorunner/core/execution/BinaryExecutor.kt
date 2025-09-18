@@ -83,7 +83,7 @@ object BinaryExecutor {
         }
     }
 
-    private fun buildArgsList(
+    private fun buildArgsListOld(
         context: Context,
         arguments: Array<String>?
     ): List<String> {
@@ -106,6 +106,35 @@ object BinaryExecutor {
 
         command.add("--config")
         command.add("\"${jtvConfigLocation}\"")
+
+        return command
+    }
+
+    private fun buildArgsList(
+        context: Context,
+        arguments: Array<String>?
+    ): List<String> {
+        if (!arguments.isNullOrEmpty()) {
+            return arguments.toList()
+        }
+
+        val port = SkySharedPref.getInstance(context).myPrefs.jtvGoServerPort
+        val jtvConfigLocation = SkySharedPref.getInstance(context).myPrefs.jtvConfigLocation
+
+        val command = mutableListOf(
+            "--config",
+        )
+
+        command.add("\"${jtvConfigLocation}\"")
+
+        command.add("run")
+
+        if (port in 1..65535) {
+            command.add("--port")
+            command.add(port.toString())
+        }
+        if (!SkySharedPref.getInstance(context).myPrefs.serveLocal)
+            command.add("--public")
 
         return command
     }
@@ -221,4 +250,3 @@ object BinaryExecutor {
         }
     }
 }
-

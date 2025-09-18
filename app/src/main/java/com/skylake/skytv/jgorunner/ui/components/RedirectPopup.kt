@@ -36,7 +36,8 @@ fun RedirectPopup(
     appIPTVpkg: String?,
     isVisible: Boolean,
     countdownTime: Int,
-    onDismiss: () -> Unit,
+    onUserCancel: () -> Unit,
+    onTimeOut: () -> Unit,
     context: Context
 ) {
     if (appIPTV == null || appIPTVpkg == null) {
@@ -65,14 +66,14 @@ fun RedirectPopup(
                 delay(1000)
                 currentTime -= 1
             }
-            onDismiss()
+            onTimeOut()
         }
 
         // Log current time
         Log.d("RedirectPopup", "Current countdown: $currentTime")
 
         AlertDialog(
-            onDismissRequest = { onDismiss() },
+            onDismissRequest = { onUserCancel()  },
             text = {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -121,7 +122,7 @@ fun RedirectPopup(
             },
             confirmButton = {
                 Button(
-                    onClick = { onDismiss() },
+                    onClick = { onUserCancel() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -130,7 +131,7 @@ fun RedirectPopup(
                 }
             },
             properties = DialogProperties(
-                dismissOnBackPress = false,
+                dismissOnBackPress = true,
                 dismissOnClickOutside = false
             )
         )

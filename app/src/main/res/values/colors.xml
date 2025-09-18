@@ -7,4 +7,8 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ic_launcher_neo_background">#FFFFFF</color>
+    <color name="ic_banner_neo_background">#FFFFFF</color>
+    <color name="ic_launcher_neodark_background">#252526</color>
+    <color name="ic_banner_alias_background">#BB0100</color>
 </resources>

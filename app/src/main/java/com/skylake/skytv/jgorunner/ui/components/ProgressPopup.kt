@@ -16,7 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 
 @Composable
 fun ProgressPopup(
@@ -69,9 +71,10 @@ fun ProgressPopup(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ProgressBar(currentProgress : Int) {
-    LinearProgressIndicator(
+    LinearWavyProgressIndicator(
         progress = { currentProgress.coerceIn(0, 100) / 100f },
         modifier = Modifier
             .fillMaxWidth()
@@ -81,9 +84,10 @@ fun ProgressBar(currentProgress : Int) {
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BufferBar() {
-    LinearProgressIndicator(
+    LinearWavyProgressIndicator(
         modifier = Modifier
             .fillMaxWidth()
             .height(6.dp),

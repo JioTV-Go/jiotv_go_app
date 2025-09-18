@@ -1,10 +1,12 @@
 package com.skylake.skytv.jgorunner.ui.screens
 
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,28 +27,38 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.twotone.DirectionsRun
 import androidx.compose.material.icons.automirrored.twotone.ExitToApp
 import androidx.compose.material.icons.twotone.Cast
 import androidx.compose.material.icons.twotone.CastConnected
 import androidx.compose.material.icons.twotone.Deblur
+import androidx.compose.material.icons.twotone.DirectionsRun
+import androidx.compose.material.icons.twotone.Landscape
 import androidx.compose.material.icons.twotone.LiveTv
 import androidx.compose.material.icons.twotone.PlayArrow
+import androidx.compose.material.icons.twotone.PlayCircleFilled
+import androidx.compose.material.icons.twotone.PlayCircleOutline
 import androidx.compose.material.icons.twotone.ResetTv
+import androidx.compose.material.icons.twotone.Start
 import androidx.compose.material.icons.twotone.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -59,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.ui.components.ButtonContent
+import com.skylake.skytv.jgorunner.ui.components.ButtonContentCust
+import kotlinx.coroutines.launch
 
 private val customFontFamily = FontFamily(
     Font(R.font.chakrapetch_bold)
@@ -153,7 +167,8 @@ fun HomeScreen(
                 )
                 .padding(5.dp)
         ) {
-            val clipboardManager = LocalClipboardManager.current
+            val coroutineScope = rememberCoroutineScope()
+            val clipboardManager = LocalClipboard.current
 
             Text(
                 text = publicJTVServerURL,
@@ -162,7 +177,10 @@ fun HomeScreen(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .clickable {
-                        clipboardManager.setText(AnnotatedString(publicJTVServerURL))
+                        coroutineScope.launch {
+                            val clipData = ClipData.newPlainText("label", publicJTVServerURL)
+                            clipboardManager.setClipEntry(ClipEntry(clipData))
+                        }
                     }
             )
         }
@@ -173,7 +191,7 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            RunServerButton(enabled = isServerRunning.not()) {
+            RunServerButton(enabled = isServerRunning.not(), titleShouldGlow = titleShouldGlow) {
                 onRunServerButtonClick()
             }
             StopServerButton(isServerRunning = isServerRunning) {
@@ -190,15 +208,15 @@ fun HomeScreen(
             RunIPTVButton {
                 onRunIPTVButtonClick()
             }
-            WebTVButton(
-                enabled = isServerRunning
-            ) {
-                onWebTVButtonClick()
-            }
             DebugButton(
                 enabled = isServerRunning
             ) {
                 onDebugButtonClick()
+            }
+            WebTVButton(
+                enabled = isServerRunning
+            ) {
+                onWebTVButtonClick()
             }
             ExitButton {
                 onExitButtonClick()
@@ -217,18 +235,29 @@ fun HomeScreen(
                 outputScrollState.animateScrollTo(outputScrollState.maxValue)
             }
 
-            Text(
-                text = outputText,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Normal,
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(160.dp)
-                    .background(Color.Black)
-                    .padding(8.dp)
-                    .verticalScroll(outputScrollState)
-            )
+                    .padding(bottom = 16.dp)
+            ) {
+                Text(
+                    text = outputText,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                        .background(Color.Black)
+                        .padding(8.dp)
+                        .verticalScroll(outputScrollState)
+                )
+            }
+
+
         }
     }
 }
@@ -236,32 +265,37 @@ fun HomeScreen(
 @Composable
 fun RowScope.RunServerButton(
     enabled: Boolean = true,
+    titleShouldGlow: Boolean = true,
     onClick: () -> Unit
 ) {
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
-
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
     Button(
-        onClick = {
-            onClick()
-        },
+        onClick = { onClick() },
         modifier = Modifier
-            .weight(1f)
+            .weight(3f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
     ) {
-        ButtonContent("Run Server", Icons.TwoTone.PlayArrow) // Different icon
+        val loginState = if (titleShouldGlow) "Server is Running" else "Server is Running | Login Error"
+        val text = if (enabled) "Run Server" else loginState
+        ButtonContentCust(
+            text = text,
+            icon = if (enabled) Icons.TwoTone.PlayCircleOutline else Icons.AutoMirrored.TwoTone.DirectionsRun,
+            noicon = false,
+            isEnabled = enabled
+        )
     }
 }
 
@@ -273,6 +307,16 @@ fun RowScope.StopServerButton(
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val colorRED = Color(0xFFFF4444)
+    val isFocused = remember { mutableStateOf(false) }
+
+    buttonColor.value = when {
+        isServerRunning -> colorRED
+        isFocused.value -> colorSECOND
+        else -> colorPRIME
+    }
+
     Button(
         onClick = {
             onClick()
@@ -282,17 +326,15 @@ fun RowScope.StopServerButton(
             .weight(1f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {
-        ButtonContent("Stop Server", Icons.TwoTone.Stop) // Different icon
+        ButtonContent("Stop", Icons.TwoTone.Stop) // Different icon
     }
 }
 
@@ -303,19 +345,19 @@ fun RowScope.RunIPTVButton(
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
     Button(
         onClick = { onClick() },
         modifier = Modifier
             .weight(1f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {
@@ -331,6 +373,8 @@ fun RowScope.WebTVButton(
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
     Button(
         onClick = {
             onClick()
@@ -339,13 +383,11 @@ fun RowScope.WebTVButton(
             .weight(1f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
@@ -362,6 +404,8 @@ fun RowScope.DebugButton(
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
     Button(
         onClick = {
             onClick()
@@ -370,18 +414,16 @@ fun RowScope.DebugButton(
             .weight(1f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
     ) {
-        ButtonContent("Debug", Icons.TwoTone.Deblur)
+        ButtonContent("TV", Icons.TwoTone.Landscape)
     }
 }
 
@@ -392,6 +434,8 @@ fun RowScope.ExitButton(
     val colorPRIME = MaterialTheme.colorScheme.primary
     val colorSECOND = MaterialTheme.colorScheme.secondary
     val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
     Button(
         onClick = {
             onClick()
@@ -400,13 +444,11 @@ fun RowScope.ExitButton(
             .weight(1f)
             .padding(8.dp)
             .onFocusChanged { focusState ->
-                buttonColor.value = if (focusState.isFocused) {
-                    colorSECOND
-                } else {
-                    colorPRIME
-                }
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
             },
         shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {

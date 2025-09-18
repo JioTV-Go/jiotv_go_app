@@ -11,7 +11,7 @@
 <p align="center">Access JioTV Go - streamlined for quick access and optimal performance! </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.6-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.1.9-blue" alt="Version">
   <img src="https://img.shields.io/badge/build-beta-FF8135" alt="Build Status">
   <img src="https://img.shields.io/badge/license-MIT-F94877" alt="License">
 </p>
@@ -34,7 +34,7 @@
 ### ✨ Features
 **JTV-GO Server** offers all the features of CustTermux, plus additional enhancements:
 
-- ⚡️ **Smaller, Faster, and Lighter**: At around 1 MB, JTV-GO is optimized for minimal storage use, with no unnecessary clutter, making it faster and more efficient.
+- ⚡️ **Smaller, Faster, and Lighter**: At around 5 MB, JTV-GO is optimized for minimal storage use, with no unnecessary clutter, making it faster and more efficient.
 - 📱 **One APK for All Devices**: Designed to work seamlessly across devices from Android 5 to the latest version, so there's no need for multiple versions.
 - 🛠 **No Dependency Hassles**: Unlike CustTermux, which may require additional dependencies, JTV-GO Server is a standalone, native app. No extra installations needed.
 - 🚀 **Enhanced Performance**: Built for efficient resource usage, JTV-GO provides a smooth, stable streaming experience.

@@ -14,14 +14,11 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 
 @Composable
 fun BottomNavigationBar(
+    currentScreen: String,
     setCurrentScreen: (String) -> Unit
 ) {
     val items = listOf(
@@ -44,33 +41,26 @@ fun BottomNavigationBar(
             hasNews = false,
         ),
     )
-    var selectedItemIndex by rememberSaveable { mutableIntStateOf(0) }
+
+    val selectedIndex = when (currentScreen) {
+        "Home" -> 0
+        "Settings", "SettingsTV" -> 1
+        "Debug" -> 2
+        else -> 0
+    }
 
     NavigationBar {
         items.forEachIndexed { index, item ->
             NavigationBarItem(
-                selected = selectedItemIndex == index,
+                selected = selectedIndex == index,
                 onClick = {
-                    selectedItemIndex = index
                     setCurrentScreen(item.title)
                 },
-                label = {
-                    Text(text = item.title)
-                },
+                label = { Text(item.title) },
                 icon = {
-                    BadgedBox(
-                        badge = {
-                            if (item.hasNews) {
-                                Badge()
-                            }
-                        }
-                    ) {
+                    BadgedBox(badge = { if (item.hasNews) Badge() }) {
                         Icon(
-                            imageVector = if (selectedItemIndex == index) {
-                                item.selectedIcon
-                            } else {
-                                item.unselectedIcon
-                            },
+                            imageVector = if (selectedIndex == index) item.selectedIcon else item.unselectedIcon,
                             contentDescription = item.title
                         )
                     }

@@ -3,4 +3,9 @@
     <style name="Theme.JGO" parent="android:Theme.Material.Light.NoActionBar">
         <item name="mediaRouteButtonTint">#ffffff</item>
     </style>
+    <style name="Theme.JGO.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#252526</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_jtv_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.JGO</item>
+    </style>
 </resources>

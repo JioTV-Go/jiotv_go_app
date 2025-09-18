@@ -31,3 +31,51 @@
 
 # Keep the SharedPrefKey annotation
 -keep @interface com.skylake.skytv.jgorunner.data.SkySharedPref$SharedPrefKey
+
+
+# Keep the no-args constructor of the deserialized class
+-keepclassmembers class com.skylake.skytv.jgorunner.ui.tvhome.Channel {
+  <init>(...);
+}
+
+-keepclassmembers class com.skylake.skytv.jgorunner.ui.tvhome.ChannelResponse {
+  <init>(...);
+}
+
+-keepclassmembers class com.skylake.skytv.jgorunner.ui.tvhome.EpgProgram {
+  <init>(...);
+}
+
+-keepclassmembers class com.skylake.skytv.jgorunner.ui.tvhome.EpgResponse {
+  <init>(...);
+}
+
+-keepclassmembers class com.skylake.skytv.jgorunner.activities.ChannelInfo {
+  <init>(...);
+}
+
+-keep class com.skylake.skytv.jgorunner.ui.tvhome.Channel
+-keep class com.skylake.skytv.jgorunner.ui.tvhome.ChannelResponse
+-keep class com.skylake.skytv.jgorunner.ui.tvhome.EpgProgram
+-keep class com.skylake.skytv.jgorunner.ui.tvhome.EpgResponse
+-keep class com.skylake.skytv.jgorunner.activities.ChannelInfo
+
+
+# Keep Kotlin metadata for reflection
+-keep class kotlin.Metadata { *; }
+
+# Keep runtime annotations and property signatures
+-keepattributes Signature,RuntimeVisibleAnnotations,RuntimeVisibleParameterAnnotations,RuntimeInvisibleAnnotations,RuntimeInvisibleParameterAnnotations,EnclosingMethod,InnerClasses,AnnotationDefault,SourceFile,LineNumberTable,LocalVariableTable,LocalVariableTypeTable
+
+# Keep all fields in SharedPrefStructure (for reflection)
+-keepclassmembers class com.skylake.skytv.jgorunner.data.SkySharedPref$SharedPrefStructure {
+    <fields>;
+}
+
+
+-keep class com.skylake.skytv.jgorunner.data.** { *; }
+
+
+
+
+

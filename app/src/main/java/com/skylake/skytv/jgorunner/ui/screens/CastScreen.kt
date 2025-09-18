@@ -16,7 +16,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.net.Inet4Address
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
@@ -106,7 +108,7 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier.padding(16.dp)
                 ) {
-                    CircularProgressIndicator()
+                    CircularWavyProgressIndicator()
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = "Processing Stream", style = MaterialTheme.typography.bodyMedium)
                 }

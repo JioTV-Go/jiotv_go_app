@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.MutableLiveData
 import com.skylake.skytv.jgorunner.BuildConfig
 import com.skylake.skytv.jgorunner.R
+import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.core.execution.BinaryExecutor
 import com.skylake.skytv.jgorunner.core.execution.ExecutionError
 import com.skylake.skytv.jgorunner.data.SkySharedPref
@@ -46,10 +47,11 @@ class BinaryService : Service() {
         createNotificationChannel()
     }
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { //
         // Check if intent is null
         if (intent == null) {
             Log.e("BinaryService", "Received null intent in onStartCommand!")
+            stopService() //
             return START_NOT_STICKY
         }
 
@@ -122,7 +124,8 @@ class BinaryService : Service() {
             "BinaryService started in the background. ? " + arguments.contentToString()
         )
 
-        return START_STICKY
+//        return START_STICKY
+        return START_REDELIVER_INTENT //
     }
 
     private fun stopService() {
@@ -148,10 +151,15 @@ class BinaryService : Service() {
     }
 
     private fun createNotification(): Notification {
+        // Create an explicit intent for the MainActivity
+        val intent = Intent(this, MainActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK // Optional flags
+
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
         // Create the Stop Binary intent and PendingIntent
         val stopIntent = Intent(this, BinaryService::class.java)
-        stopIntent.setAction(ACTION_STOP_BINARY)
-
+        stopIntent.action = ACTION_STOP_BINARY
         val stopPendingIntent = PendingIntent.getService(
             this, 0, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -161,9 +169,10 @@ class BinaryService : Service() {
         // Check for Android O and above for notification channel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationBuilder = Notification.Builder(this, CHANNEL_ID)
-                .setContentTitle("JTV-GO Service Running")
+                .setContentTitle("JTV-GO Server Running")
                 .setContentText("The server is running in the background.")
                 .setSmallIcon(R.drawable.logo)
+                .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .addAction(
                     Notification.Action.Builder(
@@ -176,17 +185,18 @@ class BinaryService : Service() {
             notification = notificationBuilder.build()
         } else {
             val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("JTV-GO Service Running")
+                .setContentTitle("JTV-GO Server Running")
                 .setContentText("The server is running in the background.")
                 .setSmallIcon(R.drawable.logo)
+                .setContentIntent(pendingIntent) // Set the intent to open the app
                 .setOngoing(true)
-
                 .addAction(R.drawable.cancel_24px, "Stop Server", stopPendingIntent)
             notification = notificationBuilder.build()
         }
 
         return notification
     }
+
 
 
     override fun onDestroy() {

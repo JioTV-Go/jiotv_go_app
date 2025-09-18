@@ -1,29 +1,19 @@
 package com.skylake.skytv.jgorunner.ui.screens
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,6 +29,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
+@SuppressLint("UseCompatLoadingForDrawables")
+fun getDrawableOrFallback(context: Context, resId: Int, fallbackResId: Int): Drawable {
+    return try {
+        context.getDrawable(resId) ?: context.getDrawable(fallbackResId)!!
+    } catch (e: Exception) {
+        context.getDrawable(fallbackResId)!!
+    }
+}
 
 @Composable
 fun AppListScreen(modifier: Modifier = Modifier, onAppSelected: (AppInfo) -> Unit) {
@@ -48,15 +46,14 @@ fun AppListScreen(modifier: Modifier = Modifier, onAppSelected: (AppInfo) -> Uni
 
     LaunchedEffect(Unit) {
         coroutineScope.launch {
-            getInstalledApps(context).collect {
-                apps.add(it)
+            getInstalledApps(context).collect { app ->
+                apps.add(app)
             }
         }
     }
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
+        modifier = modifier.fillMaxSize()
     ) {
         items(apps) { app ->
             AppListItem(appInfo = app, onAppSelected = onAppSelected)
@@ -99,7 +96,6 @@ fun AppListItem(appInfo: AppInfo, onAppSelected: (AppInfo) -> Unit) {
     }
 }
 
-
 data class AppInfo(
     val appName: String,
     val icon: Drawable,
@@ -107,45 +103,58 @@ data class AppInfo(
     val launchActivity: String
 )
 
+@SuppressLint("UseCompatLoadingForDrawables")
 fun getInstalledApps(context: Context): Flow<AppInfo> = flow {
     val packageManager: PackageManager = context.packageManager
+    val fallbackIconResId = R.mipmap.ic_launcher_neo // Ensure this resource always exists
 
-    // Get installed applications
     val apps = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
-        .filter { appInfo ->
-            // Filter out system apps
-            appInfo.flags and ApplicationInfo.FLAG_SYSTEM == 0
-        }
-        .sortedBy { appInfo ->
-            // Sort by app name
-            packageManager.getApplicationLabel(appInfo).toString().lowercase()
-        }
+        .filter { appInfo -> appInfo.flags and ApplicationInfo.FLAG_SYSTEM == 0 }
+        .sortedBy { appInfo -> packageManager.getApplicationLabel(appInfo).toString().lowercase() }
 
-    // Add a none action
-    val noneOption = AppInfo(
+    // Add "No IPTV" option
+    emit(AppInfo(
         appName = "No IPTV",
-        icon = context.getDrawable(R.drawable.cancel_24px)!!,
+        icon = getDrawableOrFallback(context, R.drawable.cancel_24px, fallbackIconResId),
         packageName = "",
         launchActivity = ""
-    )
-    emit(noneOption)
+    ))
 
-    // Add WebTV action
-    val webOption = AppInfo(
-        appName = "WEB TV",
-        icon = context.getDrawable(R.mipmap.ic_launcher_neo)!!,
+    // Add "New TV UI" option
+    emit(AppInfo(
+        appName = "New TV UI",
+        icon = getDrawableOrFallback(context, R.mipmap.ic_launcher_neodark, fallbackIconResId),
+        packageName = "tvzone",
+        launchActivity = ""
+    ))
+
+    // Add "WEB TV" option
+    emit(AppInfo(
+        appName = "WEB TV - {browser based}",
+        icon = getDrawableOrFallback(context, R.mipmap.ic_launcher_neo, fallbackIconResId),
         packageName = "webtv",
         launchActivity = ""
-    )
-    emit(webOption)
+    ))
 
+    // Add "Sonata - {ALPHA}" option
+    emit(AppInfo(
+        appName = "Sonata - {ALPHA}",
+        icon = getDrawableOrFallback(context, R.drawable.exo_loading_blue, fallbackIconResId),
+        packageName = "sonata",
+        launchActivity = ""
+    ))
+
+    
     for (appInfo in apps) {
         val appName = packageManager.getApplicationLabel(appInfo).toString()
-        val appIcon = packageManager.getApplicationIcon(appInfo)
+        val appIcon = try {
+            packageManager.getApplicationIcon(appInfo.packageName)
+        } catch (e: Exception) {
+            context.getDrawable(fallbackIconResId)!!
+        }
         val packageName = appInfo.packageName
         val launchActivity =
-            packageManager.getLaunchIntentForPackage(packageName)?.component?.className
-                ?: ""
+            packageManager.getLaunchIntentForPackage(packageName)?.component?.className ?: ""
         emit(AppInfo(appName, appIcon, packageName, launchActivity))
     }
 }.flowOn(Dispatchers.IO)
