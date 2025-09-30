@@ -67,12 +67,31 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int ) {
     val categories = remember(allChannels) {
         listOf("All") + allChannels.mapNotNull { it.category }.distinct().sorted()
     }
+    // Reorder for display: keep "All" first, then currently selected categories, then the rest
+    val categoriesDisplay = remember(categories, selectedCategory) {
+        val selectedSet = selectedCategory
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() && it != "All" }
+            ?.toSet()
+            ?: emptySet()
+        val withoutAll = categories.filter { it != "All" }
+        val selectedFirst = withoutAll.filter { it in selectedSet }
+        val unselectedLater = withoutAll.filter { it !in selectedSet }
+        listOf("All") + selectedFirst + unselectedLater
+    }
 
     val filteredChannels = remember(selectedCategory, allChannels) {
-        if (selectedCategory == null || selectedCategory == "All") {
+        val sels = selectedCategory
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() && it != "All" }
+            ?.toSet()
+            ?: emptySet()
+        if (selectedCategory == null || selectedCategory == "All" || sels.isEmpty()) {
             allChannels
         } else {
-            allChannels.filter { it.category == selectedCategory }
+            allChannels.filter { ch -> ch.category?.let { it in sels } == true }
         }
     }
 
@@ -87,11 +106,13 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int ) {
                 allChannels = channels.distinctBy { it.url }
 
                 val availableCategories = listOf("All") + allChannels.mapNotNull { it.category }.distinct()
-                val savedCategory = preferenceManager.myPrefs.lastSelectedCategoryExp
-
+                // Read saved value from existing key
+                val savedValue = preferenceManager.myPrefs.lastSelectedCategoryExp ?: "All"
+                val savedSet = savedValue.split(',').map { it.trim() }.filter { it.isNotEmpty() && it != "All" }.toSet()
+                val intersect = savedSet.intersect(availableCategories.toSet())
                 selectedCategory = when {
+                    intersect.isNotEmpty() -> intersect.joinToString(",")
                     availableCategories.contains("  Marathi") -> "  Marathi"
-                    savedCategory != null && availableCategories.contains(savedCategory) -> savedCategory
                     else -> "All"
                 }
             } else {
@@ -199,14 +220,24 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int ) {
         }
 
     } else {
-        selectedCategory?.let { currentSelection ->
+        run {
             Column(modifier = Modifier.fillMaxSize()) {
                 CategoryFilterRow(
-                    categories = categories,
-                    selectedCategory = currentSelection,
+                    categories = categoriesDisplay,
+                    selectedCategory = selectedCategory ?: "All",
                     onCategorySelected = { category ->
-                        selectedCategory = category
-                        preferenceManager.myPrefs.lastSelectedCategoryExp = category
+                        selectedCategory = if (category == "All") {
+                            "All"
+                        } else {
+                            val current = selectedCategory
+                                ?.split(',')
+                                ?.map { it.trim() }
+                                ?.filter { it.isNotEmpty() && it != "All" }
+                                ?.toMutableSet() ?: mutableSetOf()
+                            if (current.contains(category)) current.remove(category) else current.add(category)
+                            if (current.isEmpty()) "All" else current.joinToString(",")
+                        }
+                        preferenceManager.myPrefs.lastSelectedCategoryExp = selectedCategory ?: "All"
                         preferenceManager.savePreferences()
                     }
                 )
@@ -315,6 +346,12 @@ private fun CategoryFilterRow(
     selectedCategory: String,
     onCategorySelected: (String) -> Unit
 ) {
+    // For UI highlighting: derive set from selectedCategory string
+    val selectedSet = selectedCategory
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && it != "All" }
+        .toSet()
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
@@ -322,7 +359,7 @@ private fun CategoryFilterRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         items(categories, key = { it }) { category ->
-            val isSelected = (selectedCategory == category)
+            val isSelected = if (category == "All") selectedSet.isEmpty() else selectedSet.contains(category)
             FilterChip(
                 selected = isSelected,
                 onClick = { onCategorySelected(category) },
