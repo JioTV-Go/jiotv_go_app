@@ -90,7 +90,10 @@ class SkySharedPref(context: Context) {
                     try {
                         property.setter.call(instance, value)
                     } catch (e: Exception) {
-                        Log.e("SkySharedPref", "Error setting value for ${property.name}: ${e.message}")
+                        Log.e(
+                            "SkySharedPref",
+                            "Error setting value for ${property.name}: ${e.message}"
+                        )
                     }
                 }
             }
@@ -161,11 +164,17 @@ class SkySharedPref(context: Context) {
 
         // Widget-specific preferences
         @SharedPrefKey("widget_show_logs") var widgetShowLogs: Boolean = false,
-        @SharedPrefKey("widget_logs") var widgetLogs: String? = ""
+        @SharedPrefKey("widget_logs") var widgetLogs: String? = "",
+        @SharedPrefKey("operationMODE2") var operationMODE2: Int = 999,
+
+        @SharedPrefKey("lastFetchTimeRelease") var lastFetchTimeRelease: Long = 0L,
+        @SharedPrefKey("cachedReleaseName") var cachedReleaseName: String? = null,
+        @SharedPrefKey("cachedReleaseVersion") var cachedReleaseVersion: String? = null,
+        @SharedPrefKey("cachedReleaseUrl") var cachedReleaseUrl: String? = null,
+        @SharedPrefKey("cachedReleaseSize") var cachedReleaseSize: Long = 0L,
 
 
-
-    )
+        )
 
 
     // Annotation class to define the key for SharedPreferences

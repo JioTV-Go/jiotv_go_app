@@ -115,7 +115,7 @@
         </activity>
 
         <activity
-            android:name=".activities.InitModeSelectorActivity"
+            android:name=".activities.setup_wizard.SetupWizardActivity"
             android:screenOrientation="sensor"
             android:theme="@style/Theme.JGO"
             tools:ignore="DiscouragedApi">

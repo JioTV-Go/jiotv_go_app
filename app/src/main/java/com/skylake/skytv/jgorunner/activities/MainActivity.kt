@@ -39,6 +39,7 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.skylake.skytv.jgorunner.BuildConfig
+import com.skylake.skytv.jgorunner.activities.setup_wizard.SetupWizardActivity
 import com.skylake.skytv.jgorunner.core.checkServerStatus
 import com.skylake.skytv.jgorunner.core.data.JTVConfigurationManager
 import com.skylake.skytv.jgorunner.core.execution.runBinary
@@ -120,11 +121,12 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         runOnceAfterAppUpgrade()
         preferenceManager = SkySharedPref.getInstance(this)
+        BinaryUpdater.init(this)
 
 // DEL----------------------------------------------------------
 
 ///////////////////
-//        val intent = Intent(this, LandingPage::class.java)
+//        val intent = Intent(this, SetupWizardActivity::class.java)
 //        this.startActivity(intent)
 ///////////////////
 //        currentScreen = "Debug"
@@ -183,7 +185,7 @@ class MainActivity : ComponentActivity() {
 //        }
 
         if (preferenceManager.myPrefs.operationMODE == -1) {
-            val intent = Intent(this, InitModeSelectorActivity::class.java)
+            val intent = Intent(this, SetupWizardActivity::class.java)
             this.startActivity(intent)
 //            showOperationDialog = true
         }

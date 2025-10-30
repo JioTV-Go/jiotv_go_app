@@ -1,4 +1,4 @@
-package com.skylake.skytv.jgorunner.services.player
+package com.skylake.skytv.jgorunner.activities.setup_wizard
 
 import android.annotation.SuppressLint
 import android.os.Build
@@ -7,31 +7,17 @@ import android.view.View
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.annotation.RequiresApi
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.skylake.skytv.jgorunner.data.SkySharedPref
-import com.skylake.skytv.jgorunner.ui.screens.LandingPageExoTest
-import com.skylake.skytv.jgorunner.ui.screens.LandingPageScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 
-class LandingPage : ComponentActivity() {
-
-    private val TAG: String = "XLandingPage"
-    var currentScreen by mutableStateOf("Home")
-    private val onExit = { finish() }
-
-    @RequiresApi(Build.VERSION_CODES.R)
+class SetupWizardActivity : ComponentActivity() {
     @SuppressLint("WrongConstant")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             controller.hide(WindowInsets.Type.systemBars())
@@ -45,20 +31,14 @@ class LandingPage : ComponentActivity() {
                     )
         }
 
-
         val prefManager = SkySharedPref.getInstance(this)
 
         setContent {
             JGOTheme(themeOverride = prefManager.myPrefs.darkMODE) {
-                LandingPageScreen(
-                    context = this@LandingPage,
-                    onNavigate = { title -> currentScreen = title },
-                    onExit
+                InitialSetupWizard(
+                    preferenceManager = prefManager
                 )
-
-//                LandingPageExoTest()
             }
         }
     }
-
 }
