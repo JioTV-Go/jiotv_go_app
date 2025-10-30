@@ -2,17 +2,41 @@ package com.skylake.skytv.jgorunner.activities.setup_wizard
 
 import android.content.Intent
 import android.os.Process
-import androidx.compose.animation.*
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -24,13 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.BinarySetup
+import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.FinalScreen
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.LoginSetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.OperationModeSetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.PermissionSetup
-import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.FinalScreen
 import com.skylake.skytv.jgorunner.data.SkySharedPref
-import com.skylake.skytv.jgorunner.services.player.LandingPage
-import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
 import com.skylake.skytv.jgorunner.utils.CustButton
 import com.skylake.skytv.jgorunner.utils.CustOutlinedButton
 import io.github.vinceglb.confettikit.compose.ConfettiKit
@@ -72,7 +94,7 @@ fun InitialSetupWizard(
     val accentColor = if (isDark) Color(0xFF6366F1) else Color(0xFF4F46E5)
     val cardColor = if (isDark) Color(0xFF1E1E2B) else Color(0xFFF9F9FF)
     val textPrimary = if (isDark) Color(0xFFECECFB) else Color(0xFF1C1C2E)
-    val textSecondary = if (isDark) Color(0xFFB3B6F2) else Color(0xFF4F46E5)
+    if (isDark) Color(0xFFB3B6F2) else Color(0xFF4F46E5)
 
     fun parade(): List<Party> {
         val party = Party(
@@ -95,6 +117,9 @@ fun InitialSetupWizard(
         )
     }
 
+    BackHandler(enabled = currentStep > 0) {
+        currentStep--
+    }
 
     Box(
         modifier = Modifier
@@ -186,6 +211,8 @@ fun InitialSetupWizard(
                     } else {
                         CustButton(
                             onClick = {
+                                preferenceManager.myPrefs.setupPending = false
+                                preferenceManager.savePreferencesQuick()
                                 val intent = Intent(context, MainActivity()::class.java)
                                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 context.startActivity(intent)

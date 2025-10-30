@@ -125,14 +125,12 @@ class MainActivity : ComponentActivity() {
 
 // DEL----------------------------------------------------------
 
-///////////////////
 //        val intent = Intent(this, SetupWizardActivity::class.java)
 //        this.startActivity(intent)
-///////////////////
 //        currentScreen = "Debug"
-///////////////////
 
 // DEL----------------------------------------------------------
+
         val appPackageName = preferenceManager.myPrefs.iptvAppPackageName
 
         if (!appPackageName.isNullOrEmpty()) {
@@ -141,8 +139,6 @@ class MainActivity : ComponentActivity() {
                 currentScreen = "Zone"
             }
         }
-
-        // DEL
 
         if (preferenceManager.myPrefs.jtvGoBinaryVersion?.contains(
                 "develop",
@@ -158,7 +154,6 @@ class MainActivity : ComponentActivity() {
 
         if (preferenceManager.myPrefs.iptvLaunchCountdown == 0) {
             preferenceManager.myPrefs.iptvLaunchCountdown = 4
-//            preferenceManager.myPrefs.autoStartServer = true
             preferenceManager.myPrefs.enableAutoUpdate = true
             preferenceManager.myPrefs.loginChk = true
             preferenceManager.myPrefs.jtvGoServerPort = 5350
@@ -177,22 +172,27 @@ class MainActivity : ComponentActivity() {
             preferenceManager.savePreferences()
         }
 
-//        if (preferenceManager.myPrefs.operationMODE == null || (preferenceManager.myPrefs.operationMODE == 999)) {
-//            preferenceManager.myPrefs.operationMODE = -1
-//            preferenceManager.myPrefs.filterQX = "auto"
-//            preferenceManager.myPrefs.selectedScreenTV = "0"
-//            preferenceManager.myPrefs.selectedRemoteNavTV = "0"
-//        }
-
-        if (preferenceManager.myPrefs.operationMODE == -1) {
-            val intent = Intent(this, SetupWizardActivity::class.java)
-            this.startActivity(intent)
-//            showOperationDialog = true
-        }
-
         JTVConfigurationManager.getInstance(this).saveJTVConfiguration()
         isServerRunning = BinaryService.isRunning
 
+        if (preferenceManager.myPrefs.setupPending) {
+            val intent = Intent(this, SetupWizardActivity::class.java)
+            this.startActivity(intent)
+
+            if (isServerRunning) {
+                stopBinary(context = this, onBinaryStopped = {
+                    isServerRunning = false
+                    outputText = "Server stopped"
+                })
+            }
+
+            countdownJob?.cancel()
+            countdownJob = null
+            preferenceManager.myPrefs.autoStartServer = false
+            preferenceManager.savePreferences()
+            finish()
+            return
+        }
 
         if (isServerRunning) {
             BinaryService.instance?.binaryOutput?.observe(this) {
@@ -1176,8 +1176,6 @@ class MainActivity : ComponentActivity() {
     private fun Context.toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
-
-
 
 
     @RequiresApi(Build.VERSION_CODES.M)

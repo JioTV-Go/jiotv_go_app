@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import com.skylake.skytv.jgorunner.core.update.BinaryUpdater
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.BinaryService
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -109,12 +110,21 @@ fun LoginSetup(
     var uiMessage by remember { mutableStateOf<String?>("Checking server status...") }
     var isServerRunning by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        checkServerStatus("${baseURL}/play/143") { msg, running ->
-            uiMessage = msg
-            isServerRunning = running
+    LaunchedEffect(baseURL) {
+        var firstRun = true
+        while (true) {
+            if (firstRun) {
+                uiMessage = "Checking server status..."
+                firstRun = false
+            }
+            checkServerStatus("${baseURL}/play/143") { msg, running ->
+                uiMessage = msg
+                isServerRunning = running
+            }
+            delay(2000)
         }
     }
+
 
     LaunchedEffect(isServerRunning) {
         if (isServerRunning) {
@@ -501,7 +511,7 @@ private fun checkServerStatus(
                 else -> onMessageUpdate("Server not running ❌", false)
             }
         } catch (_: Exception) {
-            onMessageUpdate("Server is not running. If issue persists, go to main screen to debug.", false)
+//            onMessageUpdate("Server is not running. If issue persists, go to main screen to debug.", false)
         }
     }
 }

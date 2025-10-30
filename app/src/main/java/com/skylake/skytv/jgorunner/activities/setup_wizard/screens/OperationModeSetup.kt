@@ -18,12 +18,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 
+
 @Composable
 fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
+    val context = LocalContext.current
     val inactiveText = if (isDark) Color(0xFFAAAAEE) else Color(0xFF5C5CA8)
     val activeText = if (isDark) Color.White else Color(0xFF3F3DD9)
     var selectedIndex by remember {
@@ -38,7 +41,14 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
                     onClick = {
                         selectedIndex = 0
                         preferenceManager.myPrefs.operationMODE = 0
+
+                        preferenceManager.myPrefs.autoStartServer = true
+                        preferenceManager.myPrefs.loginChk = true
+                        preferenceManager.myPrefs.jtvGoServerPort = 5350
+                        preferenceManager.myPrefs.iptvAppPackageName = "tvzone"
+
                         preferenceManager.savePreferences()
+
                     },
                     shape = SegmentedButtonDefaults.itemShape(0, 2),
                     label = {
@@ -53,7 +63,14 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
                     onClick = {
                         selectedIndex = 1
                         preferenceManager.myPrefs.operationMODE = 1
+
+                        preferenceManager.myPrefs.autoStartServer = true
+                        preferenceManager.myPrefs.loginChk = true
+                        preferenceManager.myPrefs.iptvAppPackageName = ""
+                        preferenceManager.myPrefs.startTvAutomatically = false
+
                         preferenceManager.savePreferences()
+
                     },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
                     label = {

@@ -115,15 +115,21 @@ fun BinarySetup(
         Spacer(modifier = Modifier.height(6.dp))
         if (asset != null) {
             Text(
-                text = if (binaryInstalled)
-                    "✅ Binary installed"
-                else
-                    "❌ Binary not installed",
-                color = if (binaryInstalled) isGreen else isRed,
+                text = when {
+                    isDownloading -> "Downloading..."
+                    binaryInstalled -> "Binary installed"
+                    else -> "Binary not installed"
+                },
+                color = when {
+                    isDownloading -> subText
+                    binaryInstalled -> isGreen
+                    else -> isRed
+                },
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         when {
@@ -141,6 +147,10 @@ fun BinarySetup(
             }
 
             completed -> {
+                preferenceManager.myPrefs.jtvGoBinaryVersion =
+                    asset?.version.toString()
+                preferenceManager.myPrefs.jtvGoBinaryName = asset?.name
+                preferenceManager.savePreferences()
                 CustButton(
                     onClick = { onCompleteStep() },
                     colors = ButtonDefaults.buttonColors(containerColor = accent)
