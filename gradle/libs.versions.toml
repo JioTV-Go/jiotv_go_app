@@ -4,6 +4,7 @@ agp = "8.13.0"
 coilCompose = "2.7.0"
 compiler = "5.0.5"
 compose = "1.0.0-beta08"
+confettikit = "0.6.0"
 coreSplashscreen = "1.0.1"
 customview = "1.2.0"
 customviewPoolingcontainer = "1.1.0"
@@ -63,6 +64,7 @@ arthenica-ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full" }
 coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilCompose" }
 compiler = { module = "com.github.bumptech.glide:compiler", version.ref = "compiler" }
 compose = { module = "com.github.bumptech.glide:compose", version.ref = "compose" }
+confettikit = { module = "io.github.vinceglb:confettikit", version.ref = "confettikit" }
 exoplayer = { module = "com.google.android.exoplayer:exoplayer", version.ref = "exoplayer" }
 exoplayer-drm = { module = "com.google.android.exoplayer:exoplayer-drm", version.ref = "exoplayerDrm" }
 ffmpeg-kit-full = { module = "com.arthenica:ffmpeg-kit-full", version.ref = "ffmpegKitFull" }

@@ -61,10 +61,6 @@ public class ExoplayerActivity extends ComponentActivity {
         super.onCreate(savedInstanceState);
 
         // Fullscreen and immersive mode
-        getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
         setImmersiveMode();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
@@ -97,7 +93,7 @@ public class ExoplayerActivity extends ComponentActivity {
 
     }
 
-
+    @SuppressWarnings({"deprecation", "RedundantSuppression"})
     private void setImmersiveMode() {
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -229,11 +225,7 @@ public class ExoplayerActivity extends ComponentActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            );
+            setImmersiveMode();
         }
     }
 
