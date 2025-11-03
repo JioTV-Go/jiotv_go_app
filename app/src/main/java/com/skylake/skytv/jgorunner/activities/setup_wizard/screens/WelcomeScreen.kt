@@ -1,10 +1,12 @@
 package com.skylake.skytv.jgorunner.activities.setup_wizard.screens
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +23,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.R
@@ -30,17 +33,18 @@ private val customFontFamily = FontFamily(
 )
 
 @Composable
-fun FinalScreen(isDark: Boolean) {
-    if (isDark) Color(0xFFB3B6F2) else Color(0xFF4F46E5)
-    val textSub = if (isDark) Color(0xFF9EA1F9) else Color(0xFF5E5AF5)
-    if (isDark) Color(0xFF7E80C9) else Color(0xFF7C83EB)
+fun WelcomeScreen(
+    isDark: Boolean = isSystemInDarkTheme()
+) {
+    val accentColor = if (isDark) Color(0xFF6366F1) else Color(0xFF4F46E5)
+    val textPrimary = if (isDark) Color(0xFFECECFB) else Color(0xFF1C1C2E)
+    val subText = if (isDark) Color(0xFFB5B8E8) else Color(0xFF555579)
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Image(
             painter = painterResource(id = R.drawable.logo),
@@ -63,12 +67,17 @@ fun FinalScreen(isDark: Boolean) {
                     )
                 )
         )
-        Spacer(modifier = Modifier.height(12.dp))
+
         Text(
-            "Streaming made simple",
-            fontSize = 18.sp,
-            color = textSub,
-            fontWeight = FontWeight.Medium
+            text = "Get ready to seamlessly stream Live TV channels",
+            color = subText,
+            fontSize = 16.sp,
+            lineHeight = 22.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
+
     }
 }
+
+

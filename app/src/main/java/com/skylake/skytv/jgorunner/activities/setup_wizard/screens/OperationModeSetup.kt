@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SegmentedButton
@@ -19,6 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.data.SkySharedPref
@@ -87,19 +93,102 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
     }
 }
 
+
 @Composable
 fun ModeDescription(index: Int, isDark: Boolean) {
-    val color = if (isDark) Color(0xFFB5B8FF) else Color(0xFF4F46E5)
-    val description = when (index) {
-        0 -> "Simple Mode: Focused interface for easy use."
-        1 -> "Expert Mode: Full control and customization."
-        else -> "Please select a mode."
+    val accent = if (isDark) Color(0xFFB3B6F2) else Color(0xFF4F46E5)
+    val subText = if (isDark) Color(0xFF8E90D9) else Color(0xFF6D6FF5)
+
+    val descriptionList: @Composable () -> Unit = when (index) {
+        0 -> {
+            {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "• Automatically applies best settings",
+                        color = subText,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "• Uses a clean & simple TV layout",
+                        color = subText,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        1 -> {
+            {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "• Provides complete control over settings",
+                        color = subText,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "• Choose preferred IPTV player",
+                        color = subText,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        "• May require additions settings to be tuned",
+                        color = subText,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        else -> {
+            {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = buildAnnotatedString {
+                            append("Recommended mode : ")
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append("Simple Mode")
+                            }
+                        },
+                        color = subText,
+                        textAlign = TextAlign.Center,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
     }
-    Text(
-        text = description,
-        color = color,
-        fontSize = 16.sp,
-        lineHeight = 20.sp,
-        modifier = Modifier.padding(horizontal = 24.dp)
-    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        val title = when (index) {
+            0 -> "Simple Mode"
+            1 -> "Expert Mode"
+            else -> "Select a Mode"
+        }
+
+
+        Text(
+            text = title,
+            color = accent,
+            fontSize = 20.sp,
+            lineHeight = 24.sp,
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        descriptionList()
+    }
 }

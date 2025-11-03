@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,15 +45,19 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.BinarySetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.FinalScreen
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.LoginSetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.OperationModeSetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.PermissionSetup
+import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.WelcomeScreen
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.utils.CustButton
 import com.skylake.skytv.jgorunner.utils.CustOutlinedButton
@@ -152,11 +158,12 @@ fun InitialSetupWizard(
                 ) { step ->
                     Text(
                         text = when (step) {
-                            0 -> "Operation Mode"
-                            1 -> "App Permissions"
-                            2 -> "Download Binary"
-                            3 -> "Login"
-                            4 -> "Setup Complete 🎉"
+                            0 -> "Welcome"
+                            1 -> "Operation Mode"
+                            2 -> "App Permissions"
+                            3 -> "Download Binary"
+                            4 -> "Login"
+                            5 -> "Setup Complete 🎉"
                             else -> ""
                         },
                         fontSize = 28.sp,
@@ -175,11 +182,12 @@ fun InitialSetupWizard(
                     label = "stepTransition"
                 ) { step ->
                     when (step) {
-                        0 -> OperationModeSetup(preferenceManager, isDark)
-                        1 -> PermissionSetup(preferenceManager, isDark)
-                        2 -> BinarySetup(preferenceManager, isDark) { currentStep++ }
-                        3 -> LoginSetup(preferenceManager, isDark) { currentStep++ }
-                        4 -> FinalScreen(isDark)
+                        0 -> WelcomeScreen(isDark)
+                        1 -> OperationModeSetup(preferenceManager, isDark)
+                        2 -> PermissionSetup(preferenceManager, isDark)
+                        3 -> BinarySetup(preferenceManager, isDark) { currentStep++ }
+                        4 -> LoginSetup(preferenceManager, isDark) { currentStep++ }
+                        5 -> FinalScreen(isDark)
                     }
                 }
 
@@ -201,34 +209,47 @@ fun InitialSetupWizard(
                         Spacer(modifier = Modifier.width(100.dp))
                     }
 
-                    if (currentStep < 4) {
-                        CustButton(
-                            onClick = { currentStep++ },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
-                        ) {
-                            Text("Next", color = Color.White)
+                    when (currentStep) {
+                        0 -> {
+                            CustButton(
+                                onClick = { currentStep++ },
+                                colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                            ) {
+                                Text("Get Started", color = Color.White)
+                            }
                         }
-                    } else {
-                        CustButton(
-                            onClick = {
-                                preferenceManager.myPrefs.setupPending = false
-                                preferenceManager.savePreferencesQuick()
-                                val intent = Intent(context, MainActivity()::class.java)
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                                Process.killProcess(Process.myPid())
-                                onComplete()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
-                        ) {
-                            Text("Watch TV", color = Color.White)
+                        in 1..4 -> {
+                            CustButton(
+                                onClick = { currentStep++ },
+                                colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                            ) {
+                                Text("Next", color = Color.White)
+                            }
+                        }
+                        else -> {
+                            CustButton(
+                                onClick = {
+                                    preferenceManager.myPrefs.setupPending = false
+                                    preferenceManager.savePreferencesQuick()
+
+                                    val intent = Intent(context, MainActivity::class.java)
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+
+                                    Process.killProcess(Process.myPid())
+                                    onComplete()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                            ) {
+                                Text("Watch TV", color = Color.White)
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (currentStep == 4) {
+        if (currentStep == 5) {
             ConfettiKit(
                 modifier = Modifier
                     .matchParentSize(),
@@ -237,6 +258,3 @@ fun InitialSetupWizard(
         }
     }
 }
-
-
-
