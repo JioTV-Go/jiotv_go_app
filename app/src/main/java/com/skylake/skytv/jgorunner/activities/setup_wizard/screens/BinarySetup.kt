@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -70,7 +69,7 @@ fun BinarySetup(
         }
 
         asset = release
-        val localFile = File(context.filesDir, "${release.name}")
+        val localFile = File(context.filesDir, release.name)
         binaryInstalled = localFile.exists()
 
         if (binaryInstalled) {
@@ -183,7 +182,7 @@ fun performBinaryUpdate(
         try {
             val url = asset.downloadUrl
             val fileName = asset.name
-            val output = File(context.filesDir, "${fileName}")
+            val output = File(context.filesDir, fileName)
 
             val connection = URL(url).openConnection()
             val total = connection.contentLength

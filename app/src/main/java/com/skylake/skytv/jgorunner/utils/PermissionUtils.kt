@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -29,20 +30,41 @@ fun hasNotificationPermission(context: Context): Boolean {
             context,
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
-    } else true
+    } else {
+        true
+    }
 }
 
 fun requestNotificationPermission(activity: Activity) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-            1001
-        )
+        try {
+            val componentActivity = activity as? androidx.activity.ComponentActivity
+            if (componentActivity != null) {
+                val launcher = componentActivity.registerForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { isGranted ->
+                    Toast.makeText(
+                        activity,
+                        if (isGranted) "Notification permission granted" else "Permission denied",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                activity.requestPermissions(
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    1001
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(activity, "Error requesting permission", Toast.LENGTH_SHORT).show()
+        }
     } else {
         Toast.makeText(activity, "Notification permission not required", Toast.LENGTH_SHORT).show()
     }
 }
+
 
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {
     val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager

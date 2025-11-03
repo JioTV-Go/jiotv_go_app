@@ -43,20 +43,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Icon
+import com.skylake.skytv.jgorunner.activities.setup_wizard.SetupWizardActivity
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.utils.findActivity
 import com.skylake.skytv.jgorunner.utils.hasNotificationPermission
 import com.skylake.skytv.jgorunner.utils.hasStoragePermission
 import com.skylake.skytv.jgorunner.utils.isIgnoringBatteryOptimizations
 import com.skylake.skytv.jgorunner.utils.requestBatteryOptimizationExemption
-import com.skylake.skytv.jgorunner.utils.requestNotificationPermission
 import com.skylake.skytv.jgorunner.utils.requestStoragePermission
 
-// 🧩 Permission Setting
 @SuppressLint("LocalContextConfigurationRead")
 @Composable
 fun PermissionSetup(
-    preferenceManager: SkySharedPref,
     isDark: Boolean,
     context: Context = LocalContext.current
 ) {
@@ -118,7 +116,7 @@ fun PermissionSetup(
                 description = if (notificationGranted) "Allowed" else "Permission required",
                 isDark = isDark,
                 isBusy = isRequestInProgress,
-                onClick = { safeRequest { requestNotificationPermission(activity) } },
+                onClick = { safeRequest { (activity as? SetupWizardActivity)?.askNotificationPermission() } },
                 modifier = Modifier.weight(1f)
             )
 
@@ -143,7 +141,7 @@ fun PermissionSetup(
                 isDark = isDark,
                 isBusy = isRequestInProgress
             ) {
-                safeRequest { requestNotificationPermission(activity) }
+                safeRequest { (activity as? SetupWizardActivity)?.askNotificationPermission() }
             }
 
             PermissionItemCard(

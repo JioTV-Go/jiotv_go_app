@@ -77,7 +77,7 @@ fun LoginSetup(
         if (release == null) {
             binaryInstalled = false
         } else {
-            val localFile = File(context.filesDir, "${release.name}")
+            val localFile = File(context.filesDir, release.name)
             binaryInstalled = localFile.exists()
         }
     }
@@ -112,18 +112,25 @@ fun LoginSetup(
 
     LaunchedEffect(baseURL) {
         var firstRun = true
+        var stopUpdatingMessage = false
         while (true) {
             if (firstRun) {
                 uiMessage = "Checking server status..."
                 firstRun = false
             }
-            checkServerStatus("${baseURL}/play/143") { msg, running ->
-                uiMessage = msg
+            checkServerStatus("$baseURL/play/143") { msg, running ->
+                if (!stopUpdatingMessage || msg != "Server is running ✅") {
+                    uiMessage = msg
+                }
                 isServerRunning = running
+                if (running && !stopUpdatingMessage) {
+                    stopUpdatingMessage = true
+                }
             }
             delay(2000)
         }
     }
+
 
 
     LaunchedEffect(isServerRunning) {

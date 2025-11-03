@@ -21,7 +21,8 @@ class SetupWizardActivity : ComponentActivity() {
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             controller.hide(WindowInsets.Type.systemBars())
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = (
@@ -41,4 +42,35 @@ class SetupWizardActivity : ComponentActivity() {
             }
         }
     }
+
+    private val requestNotificationPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            android.widget.Toast.makeText(
+                this,
+                "Notification permission granted",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            android.widget.Toast.makeText(
+                this,
+                "Notification permission denied",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            android.widget.Toast.makeText(
+                this,
+                "Notification permission not required",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
 }

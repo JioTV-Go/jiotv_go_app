@@ -2,10 +2,8 @@ package com.skylake.skytv.jgorunner.activities.setup_wizard.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,7 +20,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,8 +33,8 @@ private val customFontFamily = FontFamily(
 fun WelcomeScreen(
     isDark: Boolean = isSystemInDarkTheme()
 ) {
-    val accentColor = if (isDark) Color(0xFF6366F1) else Color(0xFF4F46E5)
-    val textPrimary = if (isDark) Color(0xFFECECFB) else Color(0xFF1C1C2E)
+    if (isDark) Color(0xFF6366F1) else Color(0xFF4F46E5)
+    if (isDark) Color(0xFFECECFB) else Color(0xFF1C1C2E)
     val subText = if (isDark) Color(0xFFB5B8E8) else Color(0xFF555579)
 
     Column(

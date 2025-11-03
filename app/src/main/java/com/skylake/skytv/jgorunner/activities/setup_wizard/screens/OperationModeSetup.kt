@@ -1,6 +1,14 @@
 package com.skylake.skytv.jgorunner.activities.setup_wizard.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SingleChoiceSegmentedButtonRowScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -18,8 +27,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -32,51 +42,44 @@ import com.skylake.skytv.jgorunner.data.SkySharedPref
 
 @Composable
 fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
-    val context = LocalContext.current
     val inactiveText = if (isDark) Color(0xFFAAAAEE) else Color(0xFF5C5CA8)
     val activeText = if (isDark) Color.White else Color(0xFF3F3DD9)
-    var selectedIndex by remember {
-        mutableIntStateOf(preferenceManager.myPrefs.operationMODE)
-    }
+    var selectedIndex by remember { mutableIntStateOf(preferenceManager.myPrefs.operationMODE) }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(horizontalArrangement = Arrangement.Center) {
             SingleChoiceSegmentedButtonRow {
-                SegmentedButton(
-                    selected = selectedIndex == 0,
-                    onClick = {
+
+                GlowingSimpleButton(
+                    index = 0,
+                    selectedIndex = selectedIndex,
+                    onSelect = {
                         selectedIndex = 0
-                        preferenceManager.myPrefs.operationMODE = 0
-
-                        preferenceManager.myPrefs.autoStartServer = true
-                        preferenceManager.myPrefs.loginChk = true
-                        preferenceManager.myPrefs.jtvGoServerPort = 5350
-                        preferenceManager.myPrefs.iptvAppPackageName = "tvzone"
-
+                        preferenceManager.myPrefs.apply {
+                            operationMODE = 0
+                            autoStartServer = true
+                            loginChk = true
+                            jtvGoServerPort = 5350
+                            iptvAppPackageName = "tvzone"
+                        }
                         preferenceManager.savePreferences()
-
                     },
-                    shape = SegmentedButtonDefaults.itemShape(0, 2),
-                    label = {
-                        Text(
-                            "Simple",
-                            color = if (selectedIndex == 0) activeText else inactiveText
-                        )
-                    }
+                    activeText = activeText,
+                    inactiveText = inactiveText
                 )
+
                 SegmentedButton(
                     selected = selectedIndex == 1,
                     onClick = {
                         selectedIndex = 1
-                        preferenceManager.myPrefs.operationMODE = 1
-
-                        preferenceManager.myPrefs.autoStartServer = true
-                        preferenceManager.myPrefs.loginChk = true
-                        preferenceManager.myPrefs.iptvAppPackageName = ""
-                        preferenceManager.myPrefs.startTvAutomatically = false
-
+                        preferenceManager.myPrefs.apply {
+                            operationMODE = 1
+                            autoStartServer = true
+                            loginChk = true
+                            iptvAppPackageName = ""
+                            startTvAutomatically = false
+                        }
                         preferenceManager.savePreferences()
-
                     },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
                     label = {
@@ -88,8 +91,75 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
                 )
             }
         }
+
         Spacer(modifier = Modifier.height(20.dp))
         ModeDescription(selectedIndex, isDark)
+    }
+}
+
+@Composable
+fun SingleChoiceSegmentedButtonRowScope.GlowingSimpleButton(
+    index: Int,
+    selectedIndex: Int,
+    onSelect: () -> Unit,
+    activeText: Color,
+    inactiveText: Color
+) {
+    val selected = selectedIndex == index
+    val expertSelected = selectedIndex == 1
+    val goldLight = Color(0xFFFFE066)
+    val goldMedium = Color(0xFFFFD700)
+    val goldDeep = Color(0xFFFFB300)
+
+    val infiniteTransition = rememberInfiniteTransition(label = "")
+
+    val offsetX by infiniteTransition.animateFloat(
+        initialValue = -250f,
+        targetValue = 250f,
+        animationSpec = if (!expertSelected)
+            infiniteRepeatable(
+                animation = tween(2400, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            )
+        else
+            infiniteRepeatable(
+                animation = tween(0), // freeze
+                repeatMode = RepeatMode.Restart
+            ),
+        label = ""
+    )
+
+    val backgroundModifier =
+        if (!selected && !expertSelected) {
+            Modifier
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            goldDeep.copy(alpha = 0.3f),
+                            goldMedium.copy(alpha = 0.7f),
+                            goldLight.copy(alpha = 0.3f),
+                            Color.Transparent
+                        ),
+                        start = Offset(offsetX, 0f),
+                        end = Offset(offsetX + 200f, 0f)
+                    ),
+                    shape = SegmentedButtonDefaults.itemShape(index, 2)
+                )
+        } else Modifier
+
+    Box(modifier = backgroundModifier) {
+        this@GlowingSimpleButton.SegmentedButton(
+            selected = selected,
+            onClick = onSelect,
+            shape = SegmentedButtonDefaults.itemShape(index, 2),
+            label = {
+                Text(
+                    "Simple",
+                    color = if (selected) activeText else inactiveText
+                )
+            }
+        )
     }
 }
 
@@ -119,6 +189,7 @@ fun ModeDescription(index: Int, isDark: Boolean) {
                 }
             }
         }
+
         1 -> {
             {
                 Column(
@@ -136,13 +207,14 @@ fun ModeDescription(index: Int, isDark: Boolean) {
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        "• May require additions settings to be tuned",
+                        "• May require additional settings to be tuned",
                         color = subText,
                         textAlign = TextAlign.Center
                     )
                 }
             }
         }
+
         else -> {
             {
                 Column(
@@ -151,7 +223,7 @@ fun ModeDescription(index: Int, isDark: Boolean) {
                 ) {
                     Text(
                         text = buildAnnotatedString {
-                            append("Recommended mode : ")
+                            append("Recommended mode: ")
                             withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                 append("Simple Mode")
                             }
@@ -177,7 +249,6 @@ fun ModeDescription(index: Int, isDark: Boolean) {
             else -> "Select a Mode"
         }
 
-
         Text(
             text = title,
             color = accent,
@@ -188,7 +259,6 @@ fun ModeDescription(index: Int, isDark: Boolean) {
         )
 
         Spacer(modifier = Modifier.height(6.dp))
-
         descriptionList()
     }
 }

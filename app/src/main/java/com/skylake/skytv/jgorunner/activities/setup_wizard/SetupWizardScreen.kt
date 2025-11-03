@@ -12,7 +12,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,12 +43,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.BinarySetup
 import com.skylake.skytv.jgorunner.activities.setup_wizard.screens.FinalScreen
@@ -104,13 +99,13 @@ fun InitialSetupWizard(
 
     fun parade(): List<Party> {
         val party = Party(
-            speed = 1f,
-            maxSpeed = 25f,
-            damping = 0.9f,
+            speed = 6f,
+            maxSpeed = 35f,
+            damping = 0.85f,
             angle = Angle.RIGHT - 45,
             spread = Spread.SMALL,
             colors = listOf(0xfce18a, 0xff726d, 0xf4306d, 0xb48def),
-            emitter = Emitter(duration = 1.5.seconds).perSecond(15),
+            emitter = Emitter(duration = 2.5.seconds).perSecond(20),
             position = Position.Relative(0.0, 0.5)
         )
 
@@ -122,6 +117,7 @@ fun InitialSetupWizard(
             ),
         )
     }
+
 
     BackHandler(enabled = currentStep > 0) {
         currentStep--
@@ -184,7 +180,7 @@ fun InitialSetupWizard(
                     when (step) {
                         0 -> WelcomeScreen(isDark)
                         1 -> OperationModeSetup(preferenceManager, isDark)
-                        2 -> PermissionSetup(preferenceManager, isDark)
+                        2 -> PermissionSetup(isDark)
                         3 -> BinarySetup(preferenceManager, isDark) { currentStep++ }
                         4 -> LoginSetup(preferenceManager, isDark) { currentStep++ }
                         5 -> FinalScreen(isDark)
@@ -218,6 +214,7 @@ fun InitialSetupWizard(
                                 Text("Get Started", color = Color.White)
                             }
                         }
+
                         in 1..4 -> {
                             CustButton(
                                 onClick = { currentStep++ },
@@ -226,6 +223,7 @@ fun InitialSetupWizard(
                                 Text("Next", color = Color.White)
                             }
                         }
+
                         else -> {
                             CustButton(
                                 onClick = {
