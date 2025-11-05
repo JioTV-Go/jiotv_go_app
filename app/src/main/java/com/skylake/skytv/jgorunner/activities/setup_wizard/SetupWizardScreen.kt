@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.activities.MainActivity
@@ -99,13 +100,13 @@ fun InitialSetupWizard(
 
     fun parade(): List<Party> {
         val party = Party(
-            speed = 6f,
-            maxSpeed = 35f,
-            damping = 0.85f,
+            speed = 10f,
+            maxSpeed = 45f,
+            damping = 0.9f,
             angle = Angle.RIGHT - 45,
             spread = Spread.SMALL,
             colors = listOf(0xfce18a, 0xff726d, 0xf4306d, 0xb48def),
-            emitter = Emitter(duration = 2.5.seconds).perSecond(20),
+            emitter = Emitter(duration = 2.seconds).perSecond(25),
             position = Position.Relative(0.0, 0.5)
         )
 
@@ -114,7 +115,7 @@ fun InitialSetupWizard(
             party.copy(
                 angle = party.angle - 90,
                 position = Position.Relative(1.0, 0.5)
-            ),
+            )
         )
     }
 
@@ -247,7 +248,7 @@ fun InitialSetupWizard(
             }
         }
 
-        if (currentStep == 5) {
+        if (currentStep == 2) {
             ConfettiKit(
                 modifier = Modifier
                     .matchParentSize(),

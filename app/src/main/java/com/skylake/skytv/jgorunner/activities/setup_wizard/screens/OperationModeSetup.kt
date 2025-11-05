@@ -1,5 +1,6 @@
 package com.skylake.skytv.jgorunner.activities.setup_wizard.screens
 
+import android.os.Build
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +84,7 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
                         preferenceManager.savePreferences()
                     },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    modifier = Modifier.focusable(),
                     label = {
                         Text(
                             "Expert",
@@ -119,31 +122,37 @@ fun SingleChoiceSegmentedButtonRowScope.GlowingSimpleButton(
         animationSpec = if (!expertSelected)
             infiniteRepeatable(
                 animation = tween(2400, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
+                repeatMode = RepeatMode.Reverse
             )
         else
             infiniteRepeatable(
-                animation = tween(0), // freeze
-                repeatMode = RepeatMode.Restart
+                animation = tween(2400, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
             ),
         label = ""
     )
+
+    val safeGradient = if (Build.VERSION.SDK_INT >= 26 && !expertSelected) {
+        Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                goldDeep.copy(alpha = 0.3f),
+                goldMedium.copy(alpha = 0.7f),
+                goldLight.copy(alpha = 0.3f),
+                Color.Transparent
+            ),
+            start = Offset(offsetX, 0f),
+            end = Offset(offsetX + 200f, 0f)
+        )
+    } else {
+        Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+    }
 
     val backgroundModifier =
         if (!selected && !expertSelected) {
             Modifier
                 .background(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            goldDeep.copy(alpha = 0.3f),
-                            goldMedium.copy(alpha = 0.7f),
-                            goldLight.copy(alpha = 0.3f),
-                            Color.Transparent
-                        ),
-                        start = Offset(offsetX, 0f),
-                        end = Offset(offsetX + 200f, 0f)
-                    ),
+                    brush = safeGradient,
                     shape = SegmentedButtonDefaults.itemShape(index, 2)
                 )
         } else Modifier
