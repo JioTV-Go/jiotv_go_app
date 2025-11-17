@@ -248,7 +248,7 @@ fun InitialSetupWizard(
             }
         }
 
-        if (currentStep == 2) {
+        if (currentStep == 5) {
             ConfettiKit(
                 modifier = Modifier
                     .matchParentSize(),
