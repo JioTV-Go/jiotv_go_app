@@ -94,6 +94,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     val savedTabIndex = preferenceManager.myPrefs.selectedScreenTV?.toIntOrNull() ?: 0
 
     var selectedTabIndex by remember { mutableIntStateOf(savedTabIndex) }
+    var layoutModeSelection by remember { mutableStateOf(preferenceManager.myPrefs.tvLayoutMode ?: "Default") }
     val tabFocusRequester = remember { FocusRequester() }
 
     // Snackbar state
@@ -188,11 +189,11 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                 !preferenceManager.myPrefs.showPLAYLIST
             ) {
 
-                Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
+                Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger, layoutModeOverride = layoutModeSelection)
 
             } else if (!preferenceManager.myPrefs.showRecentTab) {
 
-                Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
+                Main_Layout(context, reloadTrigger = reloadChannelsTrigger, layoutModeOverride = layoutModeSelection)
 
             } else {
                 Column(
@@ -234,7 +235,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
 
                     // Tab Content
                     when (selectedTabIndex) {
-                        0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
+                        0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger, layoutModeOverride = layoutModeSelection)
                         1 -> Recent_Layout(context)
                         2 -> SearchTabLayout(context, tabFocusRequester)
                     }
@@ -252,16 +253,16 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
             showModeDialog = false
             Toast.makeText(context, "Refreshing Channels", Toast.LENGTH_LONG).show()
             selectedTabIndex = savedTabIndex
+            layoutModeSelection = "Default"
         },
-        onSelectionsMade = { selectedQualities, selectedCategories, _, selectedLanguages, _ ->
-            Log.d(
-                "ZoneScreen",
-                "Qualities: $selectedQualities, Categories: $selectedCategories, Languages: $selectedLanguages"
-            )
+        onSelectionsMade = { selectedQualities, selectedLayout, selectedCategories, _, selectedLanguages, _ ->
+            Log.d("ZoneScreen",
+            "Layout: $selectedLayout, Qualities: $selectedQualities, Categories: $selectedCategories, Languages: $selectedLanguages")
             Toast.makeText(context, "Refreshing Channels", Toast.LENGTH_LONG).show()
             selectedTabIndex = savedTabIndex
 
             reloadChannelsTrigger++
+            layoutModeSelection = selectedLayout
         },
         context = context
     )

@@ -61,6 +61,7 @@ import com.skylake.skytv.jgorunner.activities.ChannelInfo
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
 import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
+import com.skylake.skytv.jgorunner.ui.tvhome.components.ChannelGridScreen
 import com.skylake.skytv.jgorunner.utils.withQuality
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,8 +69,8 @@ import kotlinx.coroutines.launch
 @SuppressLint("MutableCollectionMutableState")
 @OptIn(ExperimentalGlideComposeApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun Main_Layout(context: Context, reloadTrigger: Int) {
-    rememberCoroutineScope()
+fun Main_Layout(context: Context, reloadTrigger: Int, layoutModeOverride: String? = null) {
+    val scope = rememberCoroutineScope()
     val channelsResponse = remember { mutableStateOf<ChannelResponse?>(null) }
     val filteredChannels = remember { mutableStateOf<List<Channel>>(emptyList()) }
     val preferenceManager = SkySharedPref.getInstance(context)
@@ -81,6 +82,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
 
     var selectedChannel by remember { mutableStateOf<Channel?>(null) }
     var epgData by remember { mutableStateOf<EpgProgram?>(null) }
+    val layoutMode = layoutModeOverride ?: preferenceManager.myPrefs.tvLayoutMode ?: "Default"
     var isEpgLoading by remember { mutableStateOf(false) }
     var epgError by remember { mutableStateOf(false) }
     var showLoading by remember { mutableStateOf(false) }
@@ -390,7 +392,6 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
 
             AppStartTracker.shouldPlayChannel = true
         }
-
     }
 
     // Re-filter channels when category changes
@@ -583,101 +584,103 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         }
 
         // EPG CARD (null-safe)
-        if (isEpgLoading || epgData != null || epgError) {
-            Column(
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .fillMaxWidth()
-            ) {
-                Card(
+        if (!preferenceManager.myPrefs.cardUiExperiment) {
+            if (isEpgLoading || epgData != null || epgError) {
+                Column(
                     modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
                         .fillMaxWidth()
-                        .height(120.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    when {
-                        isEpgLoading -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(100.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Loading EPG...",
-                                    style = TextStyle(
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.Gray
-                                    )
-                                )
-                            }
-                        }
-
-                        epgError -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(100.dp)
-                                    .padding(12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No EPG available",
-                                    style = TextStyle(
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color.Gray
-                                    )
-                                )
-                            }
-                        }
-
-                        epgData != null -> {
-                            val epg = epgData!!
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        when {
+                            isEpgLoading -> {
+                                Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .padding(start = 8.dp, end = 12.dp)
-                                        .heightIn(max = 110.dp)
+                                        .fillMaxWidth()
+                                        .height(100.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = epg.channel_name,
-                                        style = TextStyle(fontSize = 14.sp)
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = epg.showname,
-                                        maxLines = 1,
+                                        text = "Loading EPG...",
                                         style = TextStyle(
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.Bold
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.Gray
                                         )
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            }
+
+                            epgError -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(100.dp)
+                                        .padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Text(
-                                        text = epg.description,
-                                        style = TextStyle(fontSize = 13.sp),
-                                        maxLines = 3,
-                                        overflow = TextOverflow.Ellipsis
+                                        text = "No EPG available",
+                                        style = TextStyle(
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.Gray
+                                        )
                                     )
                                 }
+                            }
 
-                                GlideImage(
-                                    model = "$basefinURL/jtvposter/${epg.episodePoster}",
-                                    contentDescription = null,
+                            epgData != null -> {
+                                val epg = epgData!!
+                                Row(
                                     modifier = Modifier
-                                        .height(90.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
-                                    contentScale = ContentScale.Fit
-                                )
+                                        .fillMaxWidth()
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(start = 8.dp, end = 12.dp)
+                                            .heightIn(max = 110.dp)
+                                    ) {
+                                        Text(
+                                            text = epg.channel_name,
+                                            style = TextStyle(fontSize = 14.sp)
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = epg.showname,
+                                            maxLines = 1,
+                                            style = TextStyle(
+                                                fontSize = 22.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = epg.description,
+                                            style = TextStyle(fontSize = 13.sp),
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    GlideImage(
+                                        model = "$basefinURL/jtvposter/${epg.episodePoster}",
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .height(90.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
                             }
                         }
                     }
@@ -685,13 +688,27 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
             }
         }
 
+        val nonNullChannels = filteredChannels.value ?: emptyList()
+        if (layoutMode.equals("CardUI(TV)", ignoreCase = true)) {
+            ChannelGridScreen(
+                context = context,
+                filteredChannels = nonNullChannels,
+                categoryMap = categoryMap,
+                selectedChannelSetter = { selectedChannel = it },
+                localPORT = localPORT,
+                preferenceManager = preferenceManager,
+                epgData = epgData
+            )
+        } else {
         ChannelGridMain(
             context = context,
-            filteredChannels = filteredChannels.value,
+            filteredChannels = nonNullChannels,
+            // filteredChannels = filteredChannels.value,
             selectedChannelSetter = { selectedChannel = it },
             localPORT = localPORT,
             preferenceManager = preferenceManager
         )
+        }
 
 
     }

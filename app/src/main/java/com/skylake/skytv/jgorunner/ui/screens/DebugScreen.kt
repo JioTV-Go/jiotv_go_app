@@ -120,6 +120,9 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
         mutableStateOf(preferenceManager.myPrefs.genericTvIcon)
     }
 
+    // Experimental: Card UI experiment (single toggle)
+    val isCardUiExperiment = remember { mutableStateOf(preferenceManager.myPrefs.cardUiExperiment) }
+
     var isUsingPreRelease by remember {
         mutableStateOf(preferenceManager.myPrefs.preRelease)
     }
@@ -267,6 +270,34 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
                         Toast.makeText(
                             context,
                             "Custom Playlist Support ${if (checked) "enabled" else "disabled"}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+
+            // Experimental: Card UI Experiment (single toggle)
+            item {
+                DebugSwitchItem(
+                    icon = Icons.Filled.Terrain,
+                    title = "Card UI (TV)",
+                    subtitle = if (isCardUiExperiment.value)
+                        "Enabled - Card UI options visible"
+                    else
+                        "Disabled - Card UI options hidden",
+                    isChecked = isCardUiExperiment.value,
+                    onCheckedChange = { checked ->
+                        isCardUiExperiment.value = checked
+                        preferenceManager.myPrefs.cardUiExperiment = checked
+                        // On enable: only reveal dropdown (do not change layout)
+                        // On disable: hide dropdown and reset to Default
+                        if (!checked) {
+                            preferenceManager.myPrefs.tvLayoutMode = "Default"
+                        }
+                        applySettings()
+                        Toast.makeText(
+                            context,
+                            "Card UI experiment ${if (checked) "enabled" else "disabled"}",
                             Toast.LENGTH_SHORT
                         ).show()
                     }

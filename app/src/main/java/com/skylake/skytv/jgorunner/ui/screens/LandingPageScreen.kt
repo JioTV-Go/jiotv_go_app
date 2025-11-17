@@ -87,6 +87,7 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
     val savedTabIndex = preferenceManager.myPrefs.selectedScreenTV?.toIntOrNull() ?: 0
 
     var selectedTabIndex by remember { mutableIntStateOf(savedTabIndex) }
+    var layoutModeSelection by remember { mutableStateOf(preferenceManager.myPrefs.tvLayoutMode ?: "Default") }
     val tabFocusRequester = remember { FocusRequester() }
 
     // Snackbar state
@@ -205,9 +206,9 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
                 if (preferenceManager.myPrefs.customPlaylistSupport &&
                     !preferenceManager.myPrefs.showPLAYLIST
                 ) {
-                    Main_Layout_3rd(context, reloadTrigger = 0)
+                    Main_Layout_3rd(context, reloadTrigger = 0, layoutModeOverride = layoutModeSelection)
                 } else {
-                    Main_Layout(context, reloadTrigger = 0)
+                    Main_Layout(context, reloadTrigger = 0, layoutModeOverride = layoutModeSelection)
                 }
             }
             1 -> Recent_Layout(context)
@@ -224,11 +225,13 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
             showModeDialog = false
             Toast.makeText(context, "Refreshing Channels", Toast.LENGTH_LONG).show()
             selectedTabIndex = savedTabIndex
+            layoutModeSelection = "Default"
         },
-        onSelectionsMade = { selectedQualities, selectedCategories, _, selectedLanguages, _ ->
-            Log.d("ZoneScreen", "Qualities: $selectedQualities, Categories: $selectedCategories, Languages: $selectedLanguages")
+        onSelectionsMade = { selectedQualities, selectedLayout, selectedCategories, _, selectedLanguages, _ ->
+            Log.d("ZoneScreen", "Layout: $selectedLayout, Qualities: $selectedQualities, Categories: $selectedCategories, Languages: $selectedLanguages")
             Toast.makeText(context, "Refreshing Channels", Toast.LENGTH_LONG).show()
             selectedTabIndex = savedTabIndex
+            layoutModeSelection = selectedLayout
         },
         context = context
     )

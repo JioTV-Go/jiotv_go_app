@@ -57,12 +57,13 @@ import com.skylake.skytv.jgorunner.activities.ChannelInfo
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
 import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
+import com.skylake.skytv.jgorunner.ui.tvhome.components.M3UChannelGridScreen
 import com.skylake.skytv.jgorunner.ui.screens.restartAppV1
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
 
 @OptIn(ExperimentalGlideComposeApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
+fun Main_Layout_3rd(context: Context,reloadTrigger: Int,layoutModeOverride: String? = null) {
     val preferenceManager = remember { SkySharedPref.getInstance(context) }
     var allChannels by remember { mutableStateOf<List<M3UChannelExp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -73,6 +74,7 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
     val basefinURL = "http://localhost:$localPORT"
     var selectedChannel by remember { mutableStateOf<M3UChannelExp?>(null) }
     var epgData by remember { mutableStateOf<EpgProgram?>(null) }
+    val layoutMode = layoutModeOverride ?: preferenceManager.myPrefs.tvLayoutMode ?: "Default"
     val epgDebugVar by remember { mutableStateOf(preferenceManager.myPrefs.epgDebug) }
 
     var showDialog by remember { mutableStateOf(false) }
@@ -245,7 +247,7 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                         onReset = {
                             showDialog = false
                         },
-                        onSelectionsMade = { quality, categoryNames, categoryIds, languageNames, languageIds ->
+                        onSelectionsMade = { quality, layoutMode, categoryNames, categoryIds, languageNames, languageIds ->
                             Toast.makeText(context, "Restarting App!", Toast.LENGTH_LONG).show()
                             restartAppV1(context)
                         }
@@ -351,13 +353,19 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                     // Empty
                 }
 
-
-                ChannelGridTV(
-                    context = context,
-                    channels = filteredChannels,
-//                    selectedChannel = selectedChannel,
-                    onSelectedChannelChanged = { channel -> selectedChannel = channel }
-                )
+                if (layoutMode.equals("CardUI(TV)", ignoreCase = true)) {
+                    M3UChannelGridScreen(
+                        context = context,
+                        channels = filteredChannels,
+                        selectedChannelSetter = { selectedChannel = it }
+                    )
+                } else {
+                    ChannelGridTV(
+                        context = context,
+                        channels = filteredChannels,
+                        onSelectedChannelChanged = { channel -> selectedChannel = channel }
+                    )
+                }
 
                 ///////////
 //                ChannelGrid(
