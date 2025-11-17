@@ -475,13 +475,19 @@ private fun sendOtp(context: Context, phoneNumber: String, baseURL: String, onMe
 
 private fun handleSendOtpResponse(context: Context, result: String?, onMessageUpdate: (String) -> Unit) {
     if (result != null) {
-        onMessageUpdate("OTP Sent: $result")
-        Toast.makeText(context, "OTP Sent: $result", Toast.LENGTH_SHORT).show()
+        if (result.contains("true", ignoreCase = true)) {
+            onMessageUpdate("OTP Sent: Successfully")
+            Toast.makeText(context, "OTP Sent: Successfully", Toast.LENGTH_SHORT).show()
+        } else {
+            onMessageUpdate("OTP Sent: $result")
+            Toast.makeText(context, "OTP Sent: $result", Toast.LENGTH_SHORT).show()
+        }
     } else {
         onMessageUpdate("Failed to send OTP")
         Toast.makeText(context, "Failed to send OTP", Toast.LENGTH_SHORT).show()
     }
 }
+
 
 private fun verifyOtp(context: Context, phoneNumber: String, otpCode: String, baseURL: String, onMessageUpdate: (String) -> Unit, onFinished: () -> Unit) {
     if (otpCode.isNotBlank()) {
@@ -627,7 +633,7 @@ private fun isUrlAvailable(url: String, onResult: (Boolean) -> Unit) {
 
             val responseCode = connection.responseCode
             onResult(responseCode == HttpURLConnection.HTTP_OK)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             onResult(false)
         }
     }

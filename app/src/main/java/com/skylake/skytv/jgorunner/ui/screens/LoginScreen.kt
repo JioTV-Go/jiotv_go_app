@@ -388,7 +388,11 @@ private fun sendOtp(context: Context, phoneNumber: String, baseURL: String) {
 // Handle the OTP sending response
 private fun handleSendOtpResponse(context: Context, result: String?) {
     if (result != null) {
-        Toast.makeText(context, "OTP Sent: $result", Toast.LENGTH_SHORT).show()
+        if (result.contains("true", ignoreCase = true)) {
+            Toast.makeText(context, "OTP Sent: Successfully", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "OTP Sent: $result", Toast.LENGTH_SHORT).show()
+        }
     } else {
         Toast.makeText(context, "Failed to send OTP", Toast.LENGTH_SHORT).show()
     }

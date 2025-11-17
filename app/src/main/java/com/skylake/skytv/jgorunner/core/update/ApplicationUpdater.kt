@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.util.Log
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -34,7 +35,7 @@ object ApplicationUpdater {
 
                 val releaseTargetDetails: JSONObject? = try {
                     assets.getJSONObject(0)
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     null
                 }
 
@@ -65,7 +66,7 @@ object ApplicationUpdater {
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
 
         // Configure the request
-        val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
+        val request = DownloadManager.Request(downloadUrl.toUri()).apply {
             setTitle("Downloading Update")
             setDescription("Your app update is being downloaded...")
             setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)

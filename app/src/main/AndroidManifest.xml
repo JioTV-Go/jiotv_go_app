@@ -124,7 +124,7 @@
         <activity
             android:name=".services.player.ExoPlayJet"
             android:theme="@style/Theme.JGO"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|mcc|mnc|density"
             android:screenOrientation="sensor"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
@@ -205,6 +205,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Receiver for PiP playback actions -->
+        <receiver
+            android:name=".receivers.PipActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.skylake.skytv.jgorunner.PIP_PREV" />
+                <action android:name="com.skylake.skytv.jgorunner.PIP_TOGGLE" />
+                <action android:name="com.skylake.skytv.jgorunner.PIP_NEXT" />
+                <action android:name="com.skylake.skytv.jgorunner.PIP_OPEN" />
+                <action android:name="com.skylake.skytv.jgorunner.PIP_CLOSE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
