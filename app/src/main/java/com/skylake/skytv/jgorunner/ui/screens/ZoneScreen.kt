@@ -19,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,8 +58,9 @@ import androidx.compose.ui.unit.sp
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
-import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
 import com.skylake.skytv.jgorunner.ui.tvhome.Recent_Layout
+import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
+import com.skylake.skytv.jgorunner.ui.tvhome.MultiZoneFavouriteLayout
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
 import com.skylake.skytv.jgorunner.ui.tvhome.SearchTabLayout
 import com.skylake.skytv.jgorunner.utils.HandleTvBackKey
@@ -71,18 +74,59 @@ import kotlin.random.Random
 @Composable
 fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
 
-    data class TabItem(val text: String, val icon: ImageVector)
+    data class TabItem(
+        val text: String,
+        val icon: ImageVector,
+        val content: @Composable () -> Unit
+    )
 
     var showModeDialog by remember { mutableStateOf(false) }
 
     var reloadChannelsTrigger by remember { mutableIntStateOf(0) }
 
 
-    val tabs = listOf(
-        TabItem("TV", Icons.Default.Tv),
-        TabItem("Recent", Icons.Default.Star),
-        TabItem("Search", Icons.Default.Search)
-    )
+    val preferenceManager = SkySharedPref.getInstance(context)
+
+    val hasRecentTab = preferenceManager.myPrefs.showRecentTab
+    val hasFavouriteTab = preferenceManager.myPrefs.showFavouriteTab
+    val usingCustomPlaylist =
+        preferenceManager.myPrefs.customPlaylistSupport && !preferenceManager.myPrefs.showPLAYLIST
+
+    val tabFocusRequester = remember { FocusRequester() }
+
+    val tabs = buildList {
+        add(
+            TabItem("TV", Icons.Default.Tv) {
+                if (usingCustomPlaylist) {
+                    Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
+                } else {
+                    Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
+                }
+            }
+        )
+        if (hasRecentTab) {
+            add(
+                TabItem("Recent", Icons.Default.Star) {
+                    Recent_Layout(context)
+                }
+            )
+        }
+        if (hasFavouriteTab) {
+            add(
+                TabItem("Favourite", Icons.Default.Favorite) {
+                    MultiZoneFavouriteLayout(
+                        context = context,
+                        startWithM3U = usingCustomPlaylist
+                    )
+                }
+            )
+        }
+        add(
+            TabItem("Search", Icons.Default.Search) {
+                SearchTabLayout(context, tabFocusRequester)
+            }
+        )
+    }
 
     val isRemoteNavigation =
         context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK ==
@@ -90,11 +134,9 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
 
     Log.d("ZoneScreen", "Running in TV Mode: $isRemoteNavigation")
 
-    val preferenceManager = SkySharedPref.getInstance(context)
     val savedTabIndex = preferenceManager.myPrefs.selectedScreenTV?.toIntOrNull() ?: 0
-
-    var selectedTabIndex by remember { mutableIntStateOf(savedTabIndex) }
-    val tabFocusRequester = remember { FocusRequester() }
+    val initialIndex = if (savedTabIndex in tabs.indices) savedTabIndex else 0
+    var selectedTabIndex by remember { mutableIntStateOf(initialIndex) }
 
     // Snackbar state
     val snackbarHostState = remember { SnackbarHostState() }
@@ -184,16 +226,14 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
             }
 
-            if (preferenceManager.myPrefs.customPlaylistSupport &&
-                !preferenceManager.myPrefs.showPLAYLIST
-            ) {
+            val hasExtraTabs = hasRecentTab || hasFavouriteTab
 
-                Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
-
-            } else if (!preferenceManager.myPrefs.showRecentTab) {
-
-                Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
-
+            if (!hasExtraTabs) {
+                if (usingCustomPlaylist) {
+                    Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
+                } else {
+                    Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
+                }
             } else {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -232,12 +272,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
 
-                    // Tab Content
-                    when (selectedTabIndex) {
-                        0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
-                        1 -> Recent_Layout(context)
-                        2 -> SearchTabLayout(context, tabFocusRequester)
-                    }
+                    tabs.getOrNull(selectedTabIndex)?.content?.invoke()
                 }
             }
 

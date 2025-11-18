@@ -12,6 +12,32 @@ import java.util.TimeZone
 
 
 object ChannelUtils {
+    // Load canonical JioTV channels: cache first then network
+    suspend fun loadCanonicalChannels(context: Context, port: Int): List<Channel> {
+        // cache
+        loadFromCache(context)?.let { if (it.isNotEmpty()) return it }
+        // network
+        return try {
+            fetchChannels("http://localhost:$port/channels")?.result ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun loadFromCache(context: Context): List<Channel>? {
+        return try {
+            val prefs = context.getSharedPreferences("channel_cache", Context.MODE_PRIVATE)
+            val json = prefs.getString("channels_json", null)
+            if (json.isNullOrBlank()) {
+                null
+            } else {
+                val resp = Gson().fromJson(json, ChannelResponse::class.java)
+                resp?.result ?: emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
     suspend fun fetchChannels(urlString: String, save2pref: Boolean = false,   context: Context? = null): ChannelResponse? {
 
         val gson = Gson()

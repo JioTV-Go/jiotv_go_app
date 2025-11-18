@@ -181,6 +181,8 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("last_selected_category_exp") var lastSelectedCategoryExp: String? = "All",
         @SharedPrefKey("showPLAYLIST") var showPLAYLIST: Boolean = false,
         @SharedPrefKey("showRecentTab") var showRecentTab: Boolean = false,
+        @SharedPrefKey("showFavouriteTab") var showFavouriteTab: Boolean = false,
+        @SharedPrefKey("favouriteChannels") var favouriteChannels: String? = "",
         @SharedPrefKey("startTvAutomatically") var startTvAutomatically: Boolean = false,
         @SharedPrefKey("startTvAutoDelay") var startTvAutoDelay: Boolean = false,
         @SharedPrefKey("startTvAutoDelayTime") var startTvAutoDelayTime: Int = 2,
