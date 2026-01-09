@@ -1,6 +1,6 @@
 [versions]
 accompanistSystemuicontroller = "0.36.0"
-agp = "8.13.0"
+agp = "8.13.1"
 coilCompose = "2.7.0"
 compiler = "5.0.5"
 compose = "1.0.0-beta08"

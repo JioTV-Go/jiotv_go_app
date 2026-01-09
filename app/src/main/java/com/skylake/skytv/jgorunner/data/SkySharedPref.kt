@@ -146,7 +146,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("auto_start_on_boot") var autoStartOnBoot: Boolean = false,
         @SharedPrefKey("auto_start_on_boot_foreground") var autoStartOnBootForeground: Boolean = false,
         @SharedPrefKey("auto_start_iptv") var autoStartIPTV: Boolean = false,
-        @SharedPrefKey("enable_auto_update") var enableAutoUpdate: Boolean = true,
+        @SharedPrefKey("enable_auto_update") var enableAutoUpdate: Boolean = false,
         @SharedPrefKey("jtv_go_port") var jtvGoServerPort: Int = 5350,
         @SharedPrefKey("jtv_go_binary_name") var jtvGoBinaryName: String? = null,
         @SharedPrefKey("jtv_binary_version") var jtvGoBinaryVersion: String? = "v0.0.0",

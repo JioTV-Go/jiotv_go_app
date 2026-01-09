@@ -154,7 +154,7 @@ class MainActivity : ComponentActivity() {
 
         if (preferenceManager.myPrefs.iptvLaunchCountdown == 0) {
             preferenceManager.myPrefs.iptvLaunchCountdown = 4
-            preferenceManager.myPrefs.enableAutoUpdate = true
+            preferenceManager.myPrefs.enableAutoUpdate = false
             preferenceManager.myPrefs.loginChk = true
             preferenceManager.myPrefs.jtvGoServerPort = 5350
             preferenceManager.myPrefs.jtvGoBinaryVersion = "v0.0.0"

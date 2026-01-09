@@ -25,6 +25,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.ui.PlayerView
 
@@ -39,7 +41,26 @@ fun LandingPageExoTest() {
     val userAgent = "Mozilla/5.0"
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
+        // Create track selector with video track priority and high quality for Sun TV channels
+        val trackSelector = DefaultTrackSelector(context).apply {
+            parameters = buildUponParameters()
+                .setForceHighestSupportedBitrate(true)
+                .setPreferredVideoMimeTypes("video/avc", "video/hevc", "video/mp4")
+                .setAllowVideoNonSeamlessAdaptiveness(true)
+                .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                .setMaxVideoBitrate(Integer.MAX_VALUE)
+                .build()
+        }
+
+        // Create renderers factory with hardware acceleration and fallback support
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            .setEnableDecoderFallback(true)
+
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setRenderersFactory(renderersFactory)
+            .build().apply {
 
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(userAgent)

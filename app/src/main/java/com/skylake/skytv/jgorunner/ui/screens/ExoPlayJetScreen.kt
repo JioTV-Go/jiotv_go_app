@@ -97,6 +97,8 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
 import androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -1152,7 +1154,27 @@ fun initializePlayer(
     val mediaSourceFactory =
         DefaultMediaSourceFactory(context).setDataSourceFactory(httpDataSourceFactory)
 
-    val player = ExoPlayer.Builder(context).setMediaSourceFactory(mediaSourceFactory).build()
+    // Create track selector with video track priority and high quality for Sun TV channels
+    val trackSelector = DefaultTrackSelector(context).apply {
+        parameters = buildUponParameters()
+            .setForceHighestSupportedBitrate(true)
+            .setPreferredVideoMimeTypes("video/avc", "video/hevc", "video/mp4")
+            .setAllowVideoNonSeamlessAdaptiveness(true)
+            .setAllowVideoMixedMimeTypeAdaptiveness(true)
+            .setMaxVideoBitrate(Integer.MAX_VALUE)
+            .build()
+    }
+
+    // Create renderers factory with hardware acceleration and fallback support
+    val renderersFactory = DefaultRenderersFactory(context)
+        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        .setEnableDecoderFallback(true)
+
+    val player = ExoPlayer.Builder(context)
+        .setMediaSourceFactory(mediaSourceFactory)
+        .setTrackSelector(trackSelector)
+        .setRenderersFactory(renderersFactory)
+        .build()
     var resumePosition: Long
     retryCountRef.value = 0
 

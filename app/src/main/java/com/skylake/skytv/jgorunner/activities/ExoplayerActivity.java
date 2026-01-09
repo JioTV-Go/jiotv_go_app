@@ -19,9 +19,12 @@ import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.SeekParameters;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.hls.HlsMediaSource;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
@@ -104,10 +107,34 @@ public class ExoplayerActivity extends ComponentActivity {
 
     @OptIn(markerClass = UnstableApi.class)
     private void setupPlayer(String videoUrl) {
-        player = new ExoPlayer.Builder(this).build();
+        // Create track selector with video track priority and high quality
+        DefaultTrackSelector trackSelector = new DefaultTrackSelector(this);
+        trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                        .setForceHighestSupportedBitrate(true)
+                        .setPreferredVideoMimeTypes("video/avc", "video/hevc", "video/mp4")
+                        .setAllowVideoNonSeamlessAdaptiveness(true)
+                        .setAllowVideoMixedMimeTypeAdaptiveness(true)
+                        .setMaxVideoBitrate(Integer.MAX_VALUE)
+                        .build()
+        );
+
+        // Create renderers factory with hardware acceleration preference
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+                .setEnableDecoderFallback(true);
+
+        // Build player with enhanced codec support
+        player = new ExoPlayer.Builder(this)
+                .setTrackSelector(trackSelector)
+                .setRenderersFactory(renderersFactory)
+                .build();
+        
         playerView.setPlayer(player);
 
-        DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory();
+        DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true);
+        
         MediaSource hlsMediaSource = new HlsMediaSource.Factory(dataSourceFactory)
                 .setAllowChunklessPreparation(true)
                 .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)));
@@ -119,6 +146,25 @@ public class ExoplayerActivity extends ComponentActivity {
         player.setSeekParameters(SeekParameters.CLOSEST_SYNC);
         player.prepare();
         player.setPlayWhenReady(true);
+        
+        // Log video track info for debugging
+        player.addListener(new androidx.media3.common.Player.Listener() {
+            @Override
+            public void onTracksChanged(androidx.media3.common.Tracks tracks) {
+                for (androidx.media3.common.Tracks.Group group : tracks.getGroups()) {
+                    if (group.getType() == androidx.media3.common.C.TRACK_TYPE_VIDEO) {
+                        for (int i = 0; i < group.length; i++) {
+                            if (group.isTrackSupported(i)) {
+                                androidx.media3.common.Format format = group.getTrackFormat(i);
+                                Log.d(TAG, "Video track: " + format.sampleMimeType + 
+                                      " Resolution: " + format.width + "x" + format.height +
+                                      " Codec: " + format.codecs);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private String formatVideoUrl(String videoUrl, String signatureFallback) {
