@@ -1,12 +1,3 @@
-> [!IMPORTANT]
-> **Project Status: Archived**
->
-> This project is no longer maintained. The upstream JioTV-Go project has been archived,
-> and as a result development of this project has also been discontinued.
-> The codebase is preserved for reference only.
-
----
-
 <h1 align="center">
   <br>
   <a href="#">
