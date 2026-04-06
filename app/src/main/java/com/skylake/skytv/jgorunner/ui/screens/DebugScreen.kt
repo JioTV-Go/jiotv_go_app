@@ -347,7 +347,7 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
                         )
                     },
                     onClick2 = {
-                        Log.d("DIX", "PREBin Updater")
+                        Log.d("JGX", "PREBin Updater")
                         showPreReleaseBinaryDialog = true
                     },
                     enabled = true,

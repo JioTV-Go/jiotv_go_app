@@ -79,7 +79,7 @@ class WebPlayerActivity : ComponentActivity() {
             savedPortNumber
         ) + extraFilterUrl
 
-        Log.d("DIX", url!!)
+        Log.d("JGX", url!!)
 
         Log.d(TAG, "URL: $url")
 
@@ -329,7 +329,7 @@ class WebPlayerActivity : ComponentActivity() {
 
                 modifiedUrl = modifiedUrl.replace("//.m3u8", ".m3u8")
 
-                Log.d("DIX", "Modified URL for intent: $modifiedUrl")
+                Log.d("JGX", "Modified URL for intent: $modifiedUrl")
 
                 // Send the intent to ExoplayerActivity
                 val intent = Intent(this@WebPlayerActivity, ExoplayerActivity::class.java).apply {

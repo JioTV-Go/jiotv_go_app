@@ -317,7 +317,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     // ignore, retry
                 }
                 if (!success) {
-                    kotlinx.coroutines.delay(300)
+                    delay(300)
                 }
             }
             fetched = true

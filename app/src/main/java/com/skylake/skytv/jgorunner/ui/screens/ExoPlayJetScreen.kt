@@ -294,6 +294,7 @@ fun ExoPlayJetScreen(
                 PlayerCommandBus.notifyStateChanged()
             }
 
+            @Deprecated("Deprecated in Java")
             override fun onPositionDiscontinuity(reason: Int) {
                 // Seek or track changes can flip playing state; refresh PiP actions
                 PlayerCommandBus.notifyStateChanged()
