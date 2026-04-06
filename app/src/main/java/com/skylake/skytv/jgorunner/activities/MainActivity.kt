@@ -60,7 +60,7 @@ import com.skylake.skytv.jgorunner.ui.components.LoginPopup
 import com.skylake.skytv.jgorunner.ui.components.ProgressPopup
 import com.skylake.skytv.jgorunner.ui.components.RedirectPopup
 import com.skylake.skytv.jgorunner.ui.screens.CastScreen
-import com.skylake.skytv.jgorunner.ui.screens.DebugScreen
+import com.skylake.skytv.jgorunner.ui.screens.ExtraScreen
 import com.skylake.skytv.jgorunner.ui.screens.HomeScreen
 import com.skylake.skytv.jgorunner.ui.screens.InfoScreen
 import com.skylake.skytv.jgorunner.ui.screens.LoginScreen
@@ -472,7 +472,7 @@ class MainActivity : ComponentActivity() {
                                 })
 
                             "Info" -> InfoScreen(context = this@MainActivity)
-                            "Debug" -> DebugScreen(
+                            "Extra" -> ExtraScreen(
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
 
@@ -639,7 +639,7 @@ class MainActivity : ComponentActivity() {
                     currentScreen = "Zone"
                 }
 
-                "Debug" -> {
+                "Extra" -> {
                     currentScreen = "Home"
                 }
 
