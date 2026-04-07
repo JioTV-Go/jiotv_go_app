@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
 import com.skylake.skytv.jgorunner.BuildConfig
 import com.skylake.skytv.jgorunner.activities.setup_wizard.SetupWizardActivity
 import com.skylake.skytv.jgorunner.core.checkServerStatus
@@ -69,6 +70,7 @@ import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
+import com.skylake.skytv.jgorunner.services.CastManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,7 +85,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     companion object {
         private const val TAG = "JTVGo::MainActivity"
     }
@@ -235,7 +237,7 @@ class MainActivity : ComponentActivity() {
         val lastVersion = prefs.getLong("last_version_code", -1L)
 
         if (currentVersion > lastVersion) {
-            Log.d("App-DIX", "App updated")
+            Log.d("App-JGX", "App updated")
 
 
             val backupPrefs = skySharedPref.myPrefs.copy()
@@ -348,6 +350,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        CastManager.init(this)
 
         val sharedPref = getSharedPreferences("channel_cache", MODE_PRIVATE)
         try {

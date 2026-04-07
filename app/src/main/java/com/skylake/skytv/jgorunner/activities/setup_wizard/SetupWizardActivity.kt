@@ -63,7 +63,29 @@ class SetupWizardActivity : ComponentActivity() {
 
     fun askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+
+            when {
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+
+                    android.widget.Toast.makeText(
+                        this,
+                        "Already granted",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS) -> {
+                    // user denied once → ask again
+                    requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+
+                else -> {
+                    // first time OR "Don't ask again"
+                    requestNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
         } else {
             android.widget.Toast.makeText(
                 this,
@@ -72,5 +94,6 @@ class SetupWizardActivity : ComponentActivity() {
             ).show()
         }
     }
+
 
 }

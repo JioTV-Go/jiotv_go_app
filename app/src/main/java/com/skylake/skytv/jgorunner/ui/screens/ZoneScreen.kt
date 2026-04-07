@@ -2,12 +2,15 @@ package com.skylake.skytv.jgorunner.ui.screens
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.util.Log
+import android.view.ContextThemeWrapper
 import android.widget.Toast
 import androidx.compose.animation.Animatable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +24,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.twotone.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +37,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -53,6 +60,12 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
+import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.CastSession
+import com.google.android.gms.cast.framework.SessionManagerListener
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
@@ -102,6 +115,51 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
 
     var firstLaunch by remember { mutableStateOf(true) }
 
+    fun isTelevision(): Boolean {
+        return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
+    val isTv = isTelevision()
+
+
+    val isSessionConnected = remember { mutableStateOf(false) }
+    val castContext = remember {
+        CastContext.getSharedInstance(context)
+    }
+    val sessionManagerListener = remember {
+        object : SessionManagerListener<CastSession> {
+            override fun onSessionStarted(session: CastSession, sessionId: String) {
+                isSessionConnected.value = true
+            }
+
+            override fun onSessionEnded(session: CastSession, error: Int) {
+                isSessionConnected.value = false
+            }
+
+            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+                isSessionConnected.value = true
+            }
+
+            override fun onSessionStarting(session: CastSession) {}
+            override fun onSessionStartFailed(session: CastSession, error: Int) {}
+            override fun onSessionEnding(session: CastSession) {}
+            override fun onSessionResuming(session: CastSession, sessionId: String) {}
+            override fun onSessionResumeFailed(session: CastSession, error: Int) {}
+            override fun onSessionSuspended(session: CastSession, reason: Int) {}
+        }
+    }
+
+    DisposableEffect(castContext) {
+        val sessionManager = castContext.sessionManager
+        sessionManager.addSessionManagerListener(sessionManagerListener, CastSession::class.java)
+        onDispose {
+            sessionManager.removeSessionManagerListener(sessionManagerListener, CastSession::class.java)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        isSessionConnected.value = castContext.sessionManager.currentCastSession?.isConnected == true
+    }
+
     // Back press handler
     HandleTvBackKey {
         onNavigate("Home")
@@ -112,15 +170,12 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
         onExit = { onNavigate("Home") },
         showHint = {
             snackbarHostState.currentSnackbarData?.dismiss()
-            val job = coroutineScope.launch {
+            coroutineScope.launch {
                 snackbarHostState.showSnackbar(
                     "Press back again to exit",
-                    duration = SnackbarDuration.Indefinite
+                    duration = SnackbarDuration.Short
                 )
             }
-            delay(2000L)
-            snackbarHostState.currentSnackbarData?.dismiss()
-            job.cancel()
         }
     )
 
@@ -142,27 +197,33 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
             Log.d("_", innerPadding.toString())
 
             // Top Row
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp)
             ) {
-                IconButton(onClick = { showModeDialog = true }, modifier = Modifier.size(24.dp)) {
+
+                // LEFT: Filter
+                IconButton(
+                    onClick = { showModeDialog = true },
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.CenterStart)
+                ) {
                     Icon(
                         imageVector = Icons.Default.FilterAlt,
                         contentDescription = "Filter Icon",
-                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
 
+                // CENTER: Title (Perfect Center)
                 Text(
                     text = "JTV-GO",
                     fontSize = 12.sp,
                     fontFamily = customFontFamily,
                     color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.align(Alignment.Center),
                     style = TextStyle(
                         shadow = Shadow(
                             color = glowColor.value,
@@ -171,16 +232,53 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     )
                 )
 
-                IconButton(
-                    onClick = { onNavigate("SettingsTV") },
-                    modifier = Modifier.size(24.dp)
+                // RIGHT: Cast + Settings
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings Icon",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    val castGlowColor = if (isSessionConnected.value) Color.Green else Color.Transparent
+
+                    if (!isTv)
+                        AndroidView(
+                            modifier = Modifier
+                                .then(
+                                    if (isSessionConnected.value) {
+                                        Modifier
+                                            .shadow(
+                                                elevation = 8.dp,
+                                                shape = MaterialTheme.shapes.small,
+                                                ambientColor = castGlowColor,
+                                                spotColor = castGlowColor
+                                            )
+                                    } else Modifier
+                                ),
+                            factory = { ctx ->
+                                val themedContext = ContextThemeWrapper(
+                                    ctx,
+                                    R.style.Theme_JGO
+                                )
+
+                                MediaRouteButton(
+                                    themedContext,
+                                    null,
+                                    androidx.mediarouter.R.attr.mediaRouteButtonStyle
+                                ).apply {
+                                    CastButtonFactory.setUpMediaRouteButton(themedContext, this)
+                                }
+                            }
+                        )
+
+                    IconButton(
+                        onClick = { onNavigate("SettingsTV") },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.TwoTone.Settings,
+                            contentDescription = "Settings Icon",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -189,9 +287,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
             ) {
 
                 Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
-
             } else if (!preferenceManager.myPrefs.showRecentTab) {
-
                 Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
 
             } else {

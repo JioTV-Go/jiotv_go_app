@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -362,7 +361,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     putExtra("ch_name", firstChannel.channel_name)
                 }
 
-               delay(1000)
+                delay(1000)
 
                 if (context !is Activity) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -393,7 +392,9 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                 preferenceManager.savePreferences()
             } else {
                 if (channelsForAutoplay.isEmpty()) return@LaunchedEffect
-                else {watchdogAutoplay(channelsForAutoplay)}
+                else {
+                    watchdogAutoplay(channelsForAutoplay)
+                }
             }
 
             AppStartTracker.shouldPlayChannel = true
@@ -418,33 +419,34 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
 
 
     // Fetch EPG data for selected channel
-    LaunchedEffect(selectedChannel) {
-        if (selectedChannel != null) {
-            isEpgLoading = true
-            epgError = false
-            val epgURL = "$basefinURL/epg/${selectedChannel!!.channel_id}/0"
-            Log.d("EPG_FETCH", epgURL)
-
-            try {
-                val fetchedEpg = ChannelUtils.fetchEpg(epgURL)
-                if (fetchedEpg != null) {
-                    epgData = fetchedEpg
-                } else {
-                    epgData = null
-                    epgError = true
-                }
-            } catch (_: Exception) {
-                epgData = null
-                epgError = true
-            } finally {
-                isEpgLoading = false
-            }
-        } else {
-            epgData = null
-            epgError = false
-            isEpgLoading = false
-        }
-    }
+    // Error from source
+//    LaunchedEffect(selectedChannel) {
+//        if (selectedChannel != null) {
+//            isEpgLoading = true
+//            epgError = false
+//            val epgURL = "$basefinURL/epg/${selectedChannel!!.channel_id}/0"
+//            Log.d("EPG_FETCH", epgURL)
+//
+//            try {
+//                val fetchedEpg = ChannelUtils.fetchEpg(epgURL)
+//                if (fetchedEpg != null) {
+//                    epgData = fetchedEpg
+//                } else {
+//                    epgData = null
+//                    epgError = true
+//                }
+//            } catch (_: Exception) {
+//                epgData = null
+//                epgError = true
+//            } finally {
+//                isEpgLoading = false
+//            }
+//        } else {
+//            epgData = null
+//            epgError = false
+//            isEpgLoading = false
+//        }
+//    }
 
     LaunchedEffect(fetched) {
         if (!fetched) {
