@@ -51,7 +51,7 @@ jobs:
 
       # Assemble release APK for main module
       - name: Build release APK
-        run: ./gradlew :${{ env.main_project_module }}:assembleRelease -x :app:validateSigningDebug
+        run: ./gradlew :${{ env.main_project_module }}:assembleRelease
 
       # Sign APK
       - name: Sign APK release
