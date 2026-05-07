@@ -39,19 +39,24 @@ jobs:
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
-          java-version: '18'
+          java-version: '17'
           cache: 'gradle'
+          
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 9.1.0
 
       - name: Change permissions for gradlew
         run: chmod +x ./gradlew
 
       # Build all modules
-      # - name: Build gradle project
-      #   run: ./gradlew build
+      - name: Build gradle project
+        run: ./gradlew build
 
       # Assemble release APK for main module
       - name: Build release APK
-        run: ./gradlew :${{ env.main_project_module }}:assembleRelease -x lintVitalAnalyzeRelease
+        run: ./gradlew :${{ env.main_project_module }}:assembleRelease
 
       # Sign APK
       - name: Sign APK release
