@@ -65,13 +65,14 @@ android {
             exclude "lib/x86_64/**"
         }
     }
-//    lint {
-//        checkReleaseBuilds false
-//        abortOnError false
-//        disable "NullSafeMutableLiveData"
-//        disable "RememberInComposition"
-//        disable "FrequentlyChangingValue"
-//    }
+    
+   lint {
+       checkReleaseBuilds false
+       abortOnError false
+       disable "NullSafeMutableLiveData"
+       disable "RememberInComposition"
+       disable "FrequentlyChangingValue"
+   }
 
 }
 
