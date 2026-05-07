@@ -239,7 +239,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                 ) {
                     val castGlowColor = if (isSessionConnected.value) Color.Green else Color.Transparent
 
-                    if (!isTv)
+                    if (false)
                         AndroidView(
                             modifier = Modifier
                                 .then(

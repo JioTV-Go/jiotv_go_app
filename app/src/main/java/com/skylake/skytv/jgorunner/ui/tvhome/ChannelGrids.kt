@@ -50,8 +50,8 @@ import com.bumptech.glide.integration.compose.GlideImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.activities.ChannelInfo
-import com.skylake.skytv.jgorunner.core.execution.crosscode
-import com.skylake.skytv.jgorunner.core.execution.getLocalIp
+//import com.skylake.skytv.jgorunner.core.execution.crosscode
+//import com.skylake.skytv.jgorunner.core.execution.getLocalIp
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.CastManager
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
@@ -112,23 +112,25 @@ fun ChannelGridTV(
                                     return@combinedClickable
                                 }
 
-                                if (!CastManager.isConnected.value) {
-                                    context.startActivity(intent)
-                                } else {
-                                    val ip = getLocalIp(context)
-                                    val updatedLogoUrl = channel.logo?.replace("localhost", ip)
-                                    saveRecentChannel(
-                                        preferenceManager = preferenceManager,
-                                        logoUrl = updatedLogoUrl,
-                                        channelName = channel.name
-                                    )
-                                    crosscode(
-                                        context = context,
-                                        videoUrl = channel.url,
-                                        onProcessingStart = { CastManager.setProcessing(true) },
-                                        onProcessingEnd = { CastManager.setProcessing(false) }
-                                    )
-                                }
+                                context.startActivity(intent)
+
+//                                if (!CastManager.isConnected.value) {
+//                                    context.startActivity(intent)
+//                                } else {
+//                                    val ip = getLocalIp(context)
+//                                    val updatedLogoUrl = channel.logo?.replace("localhost", ip)
+//                                    saveRecentChannel(
+//                                        preferenceManager = preferenceManager,
+//                                        logoUrl = updatedLogoUrl,
+//                                        channelName = channel.name
+//                                    )
+//                                    crosscode(
+//                                        context = context,
+//                                        videoUrl = channel.url,
+//                                        onProcessingStart = { CastManager.setProcessing(true) },
+//                                        onProcessingEnd = { CastManager.setProcessing(false) }
+//                                    )
+//                                }
 
 
                                 // Update recent channels
@@ -309,28 +311,30 @@ fun ChannelGridMain(
                                     if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
 
-                                if (CastManager.isConnecting.value) {
-                                    Log.d("Cast", "Still connecting, ignoring click")
-                                    return@combinedClickable
-                                }
+                                context.startActivity(intent)
 
-                                if (!CastManager.isConnected.value) {
-                                    context.startActivity(intent)
-                                } else {
-                                    val ip = getLocalIp(context)
-                                    val port = preferenceManager.myPrefs.jtvGoServerPort
-                                    saveRecentChannel(
-                                        preferenceManager = preferenceManager,
-                                        logoUrl = "http://$ip:$port/jtvimage/${channel.logoUrl}",
-                                        channelName = channel.channel_name
-                                    )
-                                    crosscode(
-                                        context = context,
-                                        videoUrl = channel.channel_url,
-                                        onProcessingStart = { CastManager.setProcessing(true) },
-                                        onProcessingEnd = { CastManager.setProcessing(false) }
-                                    )
-                                }
+//                                if (CastManager.isConnecting.value) {
+//                                    Log.d("Cast", "Still connecting, ignoring click")
+//                                    return@combinedClickable
+//                                }
+//
+//                                if (!CastManager.isConnected.value) {
+//                                    context.startActivity(intent)
+//                                } else {
+//                                    val ip = getLocalIp(context)
+//                                    val port = preferenceManager.myPrefs.jtvGoServerPort
+//                                    saveRecentChannel(
+//                                        preferenceManager = preferenceManager,
+//                                        logoUrl = "http://$ip:$port/jtvimage/${channel.logoUrl}",
+//                                        channelName = channel.channel_name
+//                                    )
+//                                    crosscode(
+//                                        context = context,
+//                                        videoUrl = channel.channel_url,
+//                                        onProcessingStart = { CastManager.setProcessing(true) },
+//                                        onProcessingEnd = { CastManager.setProcessing(false) }
+//                                    )
+//                                }
 
                                 // Recent channels logic
                                 val recentChannelsJson = preferenceManager.myPrefs.recentChannels

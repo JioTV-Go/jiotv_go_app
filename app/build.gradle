@@ -101,7 +101,7 @@ dependencies {
     implementation libs.androidx.appcompat
     implementation libs.androidx.mediarouter
 //----------------------------------------------------------
-    implementation 'io.github.maitrungduc1410:ffmpeg-kit-min:6.0.1'
+//    implementation 'io.github.maitrungduc1410:ffmpeg-kit-min:6.0.1'
 //----------------------------------------------------------
     implementation libs.androidx.tv.foundation
     implementation libs.androidx.tv.material
