@@ -11,7 +11,10 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.webkit.CookieManager
+import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ProgressBar
@@ -52,36 +55,38 @@ class WebPlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_web_player)
 
-        val savedPortNumber = prefManager.myPrefs.jtvGoServerPort
-        val filterQ = prefManager.myPrefs.filterQ
-        val filterL = prefManager.myPrefs.filterL
-        val filterC = prefManager.myPrefs.filterC
-//        val extraFilterUrl = "/?q=$filterQ&language=$filterL&category=$filterC" // "/?q=low&language=6&category=7"
-        val extraFilterUrl = buildString {
-            append("/")
+        val intentUrl = intent.getStringExtra("video_url")
 
-            if (!filterQ.isNullOrEmpty()) append("?q=$filterQ")
+        if (!intentUrl.isNullOrEmpty()) {
+            url = intentUrl
+            Log.d(TAG, "Fallback URL received: $url")
+        } else {
+            val savedPortNumber = prefManager.myPrefs.jtvGoServerPort
+            val filterQ = prefManager.myPrefs.filterQ
+            val filterL = prefManager.myPrefs.filterL
+            val filterC = prefManager.myPrefs.filterC
 
-            if (!filterL.isNullOrEmpty()) {
-                if (isNotEmpty()) append("&")
-                append("language=$filterL")
+            val extraFilterUrl = buildString {
+                append("/")
+                if (!filterQ.isNullOrEmpty()) append("?q=$filterQ")
+                if (!filterL.isNullOrEmpty()) {
+                    if (contains("?")) append("&") else append("?")
+                    append("language=$filterL")
+                }
+                if (!filterC.isNullOrEmpty()) {
+                    if (contains("?")) append("&") else append("?")
+                    append("category=$filterC")
+                }
             }
 
-            if (!filterC.isNullOrEmpty()) {
-                if (isNotEmpty()) append("&")
-                append("category=$filterC")
-            }
+            url = String.format(
+                Locale.getDefault(),
+                DEFAULT_URL_TEMPLATE,
+                savedPortNumber
+            ) + extraFilterUrl
         }
 
-        url = String.format(
-            Locale.getDefault(),
-            DEFAULT_URL_TEMPLATE,
-            savedPortNumber
-        ) + extraFilterUrl
-
-        Log.d("JGX", url!!)
-
-        Log.d(TAG, "URL: $url")
+        Log.d("JGX", "Final URL to load: $url")
 
         setupBackPressedCallback()
         setupFullScreenMode()
@@ -158,17 +163,44 @@ class WebPlayerActivity : ComponentActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        webView!!.webViewClient = CustomWebViewClient()
-        webView!!.webChromeClient = WebChromeClient()
 
-        val webSettings = webView!!.settings
-        webSettings.javaScriptEnabled = true
-        webSettings.domStorageEnabled = true
-        webSettings.loadWithOverviewMode = true
-        webSettings.useWideViewPort = true
-        webSettings.defaultTextEncodingName = "utf-8"
-        webSettings.mixedContentMode = 0
-        webSettings.mediaPlaybackRequiresUserGesture = false // Allow autoplay
+        val settings = webView!!.settings
+        settings.javaScriptEnabled = true
+        settings.domStorageEnabled = true
+        settings.databaseEnabled = true
+        settings.useWideViewPort = true
+        settings.loadWithOverviewMode = true
+        settings.javaScriptCanOpenWindowsAutomatically = true
+        settings.setSupportMultipleWindows(true)
+        settings.mediaPlaybackRequiresUserGesture = false
+        settings.defaultTextEncodingName = "utf-8"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            settings.mixedContentMode =
+                WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        }
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView!!, true)
+        }
+        cookieManager.flush()
+        webView!!.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    runOnUiThread {
+                        for (resource in request.resources) {
+                            if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID == resource) {
+                                request.grant(arrayOf(resource))
+                                return@runOnUiThread
+                            }
+                        }
+                        request.deny()
+                    }
+                }
+            }
+        }
+        webView!!.webViewClient = CustomWebViewClient()
     }
 
     private fun loadUrl() {
@@ -262,87 +294,117 @@ class WebPlayerActivity : ComponentActivity() {
     }
 
     private inner class CustomWebViewClient : WebViewClient() {
+//        @Deprecated("Deprecated in Java")
+//        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+//            if (url.contains("/play/")) {
+//                initURL = webView!!.url
+//                Log.d(TAG, "Saving initURL: $initURL")
+//
+//                // Extract the play ID from the URL
+//                val playId = if (url.matches(".*/play/([^/]+).*".toRegex())) url.replace(
+//                    ".*/play/([^/]+).*".toRegex(),
+//                    "$1"
+//                ) else null
+//
+//                Log.d("WB", playId ?: "Play ID not found")
+//
+//                // Use JavaScript to extract the channel logo and name
+//                view.evaluateJavascript(
+//                    "(function() { " +
+//                            "try { " +
+//                            "    var channelCard = document.querySelector('a[href*=\"/play/" + playId + "\"]'); " +
+//                            "    if (channelCard) { " +
+//                            "        var logoElement = channelCard.querySelector('img'); " +
+//                            "        var nameElement = channelCard.querySelector('span'); " +
+//                            "        var logoUrl = logoElement ? logoElement.getAttribute('src') : null; " +
+//                            "        var channelName = nameElement ? nameElement.innerText : null; " +
+//                            "        return JSON.stringify({playId: '" + playId + "', logoUrl: logoUrl, channelName: channelName}); " +
+//                            "    } else { " +
+//                            "        return null; " +
+//                            "    } " +
+//                            "} catch (error) { " +
+//                            "    return null; " +
+//                            "} " +
+//                            "})();"
+//                ) { result: String? ->
+//                    if (result != null && result != "null") {
+//                        try {
+//                            // Remove any extra quotes surrounding the JSON result
+//                            val jsonString =
+//                                result.replace("^\"|\"$".toRegex(), "").replace("\\\"", "\"")
+//                            val jsonResult = JSONObject(jsonString)
+//                            currentPlayId = jsonResult.getString("playId")
+//                            currentLogoUrl = jsonResult.getString("logoUrl")
+//                            currentChannelName = jsonResult.getString("channelName")
+//
+//                            Log.d(
+//                                TAG,
+//                                "Channel Clicked: $currentChannelName (Play ID: $currentPlayId)"
+//                            )
+//                            saveRecentChannel(currentPlayId, currentLogoUrl, currentChannelName)
+//                        } catch (e: JSONException) {
+//                            Log.d(
+//                                TAG,
+//                                "JSON parsing error: " + e.message
+//                            )
+//                        }
+//                    } else {
+//                        Log.d(
+//                            TAG,
+//                            "No channel data extracted."
+//                        )
+//                    }
+//                }
+//
+//                // Construct the new URL
+//                var modifiedUrl = url.replace("/play/", "/live/") + ".m3u8"
+//
+//                modifiedUrl = modifiedUrl.replace("//.m3u8", ".m3u8")
+//
+//                Log.d("JGX", "Modified URL for intent: $modifiedUrl")
+//
+//                // Send the intent to ExoplayerActivity
+//                val intent = Intent(this@WebPlayerActivity, ExoplayerActivity::class.java).apply {
+//                    putExtra("video_url", modifiedUrl)
+//                    putExtra("current_play_id", playId?.substringBefore("?") ?: playId)
+//                    putExtra("channels_list", channelNumbers?.toTypedArray())
+//                }
+//                startActivity(intent)
+//                return true
+//            } else if (!url.contains("/play/") && !url.contains("/player/")) {
+//                initURL = url
+//                return false
+//            }
+//            return false
+//        }
+
         @Deprecated("Deprecated in Java")
         override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+
             if (url.contains("/play/")) {
+
                 initURL = webView!!.url
+
                 Log.d(TAG, "Saving initURL: $initURL")
 
-                // Extract the play ID from the URL
-                val playId = if (url.matches(".*/play/([^/]+).*".toRegex())) url.replace(
-                    ".*/play/([^/]+).*".toRegex(),
-                    "$1"
-                ) else null
+                // Convert play URL -> mpd URL
+                var modifiedUrl = url.replace("/play/", "/mpd/")
 
-                Log.d("WB", playId ?: "Play ID not found")
+                // Remove accidental double slashes
+                modifiedUrl = modifiedUrl.replace("//mpd/", "/mpd/")
 
-                // Use JavaScript to extract the channel logo and name
-                view.evaluateJavascript(
-                    "(function() { " +
-                            "try { " +
-                            "    var channelCard = document.querySelector('a[href*=\"/play/" + playId + "\"]'); " +
-                            "    if (channelCard) { " +
-                            "        var logoElement = channelCard.querySelector('img'); " +
-                            "        var nameElement = channelCard.querySelector('span'); " +
-                            "        var logoUrl = logoElement ? logoElement.getAttribute('src') : null; " +
-                            "        var channelName = nameElement ? nameElement.innerText : null; " +
-                            "        return JSON.stringify({playId: '" + playId + "', logoUrl: logoUrl, channelName: channelName}); " +
-                            "    } else { " +
-                            "        return null; " +
-                            "    } " +
-                            "} catch (error) { " +
-                            "    return null; " +
-                            "} " +
-                            "})();"
-                ) { result: String? ->
-                    if (result != null && result != "null") {
-                        try {
-                            // Remove any extra quotes surrounding the JSON result
-                            val jsonString =
-                                result.replace("^\"|\"$".toRegex(), "").replace("\\\"", "\"")
-                            val jsonResult = JSONObject(jsonString)
-                            currentPlayId = jsonResult.getString("playId")
-                            currentLogoUrl = jsonResult.getString("logoUrl")
-                            currentChannelName = jsonResult.getString("channelName")
+                Log.d(TAG, "Loading MPD URL: $modifiedUrl")
 
-                            Log.d(
-                                TAG,
-                                "Channel Clicked: $currentChannelName (Play ID: $currentPlayId)"
-                            )
-                            saveRecentChannel(currentPlayId, currentLogoUrl, currentChannelName)
-                        } catch (e: JSONException) {
-                            Log.d(
-                                TAG,
-                                "JSON parsing error: " + e.message
-                            )
-                        }
-                    } else {
-                        Log.d(
-                            TAG,
-                            "No channel data extracted."
-                        )
-                    }
-                }
+                // Load directly in WebView
+                view.loadUrl(modifiedUrl)
 
-                // Construct the new URL
-                var modifiedUrl = url.replace("/play/", "/live/") + ".m3u8"
-
-                modifiedUrl = modifiedUrl.replace("//.m3u8", ".m3u8")
-
-                Log.d("JGX", "Modified URL for intent: $modifiedUrl")
-
-                // Send the intent to ExoplayerActivity
-                val intent = Intent(this@WebPlayerActivity, ExoplayerActivity::class.java).apply {
-                    putExtra("video_url", modifiedUrl)
-                    putExtra("current_play_id", playId?.substringBefore("?") ?: playId)
-                    putExtra("channels_list", channelNumbers?.toTypedArray())
-                }
-                startActivity(intent)
                 return true
-            } else if (!url.contains("/play/") && !url.contains("/player/")) {
-                initURL = url
-                return false
             }
+
+            else if (!url.contains("/play/") && !url.contains("/player/")) {
+                initURL = url
+            }
+
             return false
         }
 

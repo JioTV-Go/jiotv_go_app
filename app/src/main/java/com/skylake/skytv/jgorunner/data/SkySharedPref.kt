@@ -194,7 +194,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("epgDebug") var epgDebug: Boolean = false,
         @SharedPrefKey("lastSelectedCategoriesExp") var lastSelectedCategoriesExp: String? = "",
         @SharedPrefKey("setupPending") var setupPending: Boolean = true,
-        @SharedPrefKey("enable_pip") var enablePip: Boolean = true,
+        @SharedPrefKey("enable_pip") var enablePip: Boolean = false,
 
         // Widget-specific preferences
         @SharedPrefKey("widget_show_logs") var widgetShowLogs: Boolean = false,
