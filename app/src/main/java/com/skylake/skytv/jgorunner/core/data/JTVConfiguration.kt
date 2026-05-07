@@ -16,7 +16,7 @@ data class JTVConfiguration(
     var disableLogout: Boolean = false,
 
     @SerializedName("drm")
-    var drm: Boolean = false,
+    var drm: Boolean = true,
 
     @SerializedName("title")
     var title: String = "JTV-GO",

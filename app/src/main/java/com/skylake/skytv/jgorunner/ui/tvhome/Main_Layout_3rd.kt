@@ -350,22 +350,12 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                 } else {
                     // Empty
                 }
-
-
                 ChannelGridTV(
                     context = context,
                     channels = filteredChannels,
-//                    selectedChannel = selectedChannel,
                     onSelectedChannelChanged = { channel -> selectedChannel = channel }
                 )
 
-                ///////////
-//                ChannelGrid(
-//                    context = context,
-//                    channels = filteredChannels,
-//                    selectedChannel = selectedChannel,
-//                    onSelectedChannelChanged = { channel -> selectedChannel = channel }
-//                )
             }
         }
     }

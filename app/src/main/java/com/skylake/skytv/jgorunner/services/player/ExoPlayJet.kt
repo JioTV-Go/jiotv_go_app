@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
@@ -17,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.skylake.skytv.jgorunner.activities.ChannelInfo
+import com.skylake.skytv.jgorunner.activities.WebPlayerActivity
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.screens.ExoPlayJetScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
@@ -51,7 +53,19 @@ class ExoPlayJet : ComponentActivity() {
                     preferenceManager = prefManager,
                     videoUrl = videoUrlState,
                     channelList = channelListState,
-                    currentChannelIndex = currentChannelIndexState
+                    currentChannelIndex = currentChannelIndexState,
+                    onError = { failedUrl ->
+                        Log.e(tag, "Playback failed, switching to WebView: $failedUrl")
+
+                        val intent = Intent(this@ExoPlayJet, WebPlayerActivity::class.java).apply {
+                            putExtra("video_url", failedUrl)
+                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+
+                        startActivity(intent)
+
+                        finish()
+                    }
                 )
             }
         }

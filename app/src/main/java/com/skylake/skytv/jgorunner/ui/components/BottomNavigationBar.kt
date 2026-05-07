@@ -2,9 +2,11 @@ package com.skylake.skytv.jgorunner.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeveloperMode
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.DeveloperMode
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
@@ -35,9 +37,9 @@ fun BottomNavigationBar(
             hasNews = false,
         ),
         BottomNavigationItem(
-            title = "Debug",
-            selectedIcon = Icons.Filled.DeveloperMode,
-            unselectedIcon = Icons.Outlined.DeveloperMode,
+            title = "Extra",
+            selectedIcon = Icons.Filled.Extension,
+            unselectedIcon = Icons.Outlined.Extension,
             hasNews = false,
         ),
     )
@@ -45,7 +47,7 @@ fun BottomNavigationBar(
     val selectedIndex = when (currentScreen) {
         "Home" -> 0
         "Settings", "SettingsTV" -> 1
-        "Debug" -> 2
+        "Extra" -> 2
         else -> 0
     }
 

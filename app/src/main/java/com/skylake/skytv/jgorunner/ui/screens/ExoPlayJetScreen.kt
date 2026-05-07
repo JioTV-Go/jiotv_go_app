@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
+import androidx.glance.color.DynamicThemeColorProviders.onError
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -133,7 +134,8 @@ fun ExoPlayJetScreen(
     preferenceManager: SkySharedPref,
     videoUrl: String,
     channelList: ArrayList<ChannelInfo>?,
-    currentChannelIndex: Int
+    currentChannelIndex: Int,
+    onError: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -227,7 +229,9 @@ fun ExoPlayJetScreen(
         initializePlayer(
             getCurrentVideoUrl = { channelList?.getOrNull(currentIndex)?.videoUrl ?: videoUrl },
             context = context,
-            retryCountRef = retryCountRef
+            retryCountRef = retryCountRef,
+            localPort = localPORT,
+            onError = onError
         )
     }
 
@@ -294,6 +298,7 @@ fun ExoPlayJetScreen(
                 PlayerCommandBus.notifyStateChanged()
             }
 
+            @Deprecated("Deprecated in Java")
             override fun onPositionDiscontinuity(reason: Int) {
                 // Seek or track changes can flip playing state; refresh PiP actions
                 PlayerCommandBus.notifyStateChanged()
@@ -1144,7 +1149,9 @@ fun getCurrentFormattedTime(): String {
 fun initializePlayer(
     getCurrentVideoUrl: () -> String,
     context: Context,
-    retryCountRef: MutableState<Int>
+    retryCountRef: MutableState<Int>,
+    localPort: Int,
+    onError: (String) -> Unit
 ): ExoPlayer {
     val httpDataSourceFactory = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
@@ -1171,24 +1178,27 @@ fun initializePlayer(
 
     prepareAndPlay()
 
-    // Always Retry
     player.addListener(object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             val currentUrl = getCurrentVideoUrl()
-            if (currentUrl.containsAnyId()) {
-                // そにー Resume
-                resumePosition = player.currentPosition
-                Log.d(TAG, "Retrying special channel from position $resumePosition")
-                player.stop()
-                prepareAndPlay(resumePosition)
+            val portIdentifier = ":$localPort"
+
+            if (currentUrl.contains(portIdentifier) && retryCountRef.value >= 1) {
+                Log.d(TAG, "Local server playback failed twice, switching to WebView")
+
+                val formattedUrl = currentUrl
+                    .replace(".m3u8", "", ignoreCase = true)
+                    .replace("/live/", "/mpd/", ignoreCase = true)
+
+                Log.d(TAG, "Sending formatted URL to WebView: $formattedUrl")
+                onError(formattedUrl)
             } else {
-                Log.d(TAG, "Retrying normal channel from start")
+                retryCountRef.value++
                 player.stop()
-                prepareAndPlay()
+                prepareAndPlay(player.currentPosition)
             }
         }
     })
-
 
     return player
 }

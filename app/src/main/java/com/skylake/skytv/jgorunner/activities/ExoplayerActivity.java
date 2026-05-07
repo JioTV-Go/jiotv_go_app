@@ -42,8 +42,8 @@ import okhttp3.Response;
 
 public class ExoplayerActivity extends ComponentActivity {
 
-    private static final String TAG = "ExoplayerActivity-DIX";
-    private static final String TAG_MPD = "MPD_Scraper-DIX";
+    private static final String TAG = "ExoplayerActivity-JGX";
+    private static final String TAG_MPD = "MPD_Scraper-JGX";
     private static final String DEFAULT_VIDEO_URL = "http://localhost:5350/live/143.m3u8";
     private static final int HIDE_CONTROLS_DELAY_MS = 1000;
 

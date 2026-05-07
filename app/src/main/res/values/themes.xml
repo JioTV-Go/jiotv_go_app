@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.JGO" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.JGO" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
         <item name="mediaRouteButtonTint">#ffffff</item>
     </style>
     <style name="Theme.JGO.Splash" parent="Theme.SplashScreen">

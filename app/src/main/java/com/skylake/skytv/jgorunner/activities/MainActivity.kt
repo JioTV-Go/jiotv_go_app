@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.fragment.app.FragmentActivity
 import com.skylake.skytv.jgorunner.BuildConfig
 import com.skylake.skytv.jgorunner.activities.setup_wizard.SetupWizardActivity
 import com.skylake.skytv.jgorunner.core.checkServerStatus
@@ -60,7 +61,7 @@ import com.skylake.skytv.jgorunner.ui.components.LoginPopup
 import com.skylake.skytv.jgorunner.ui.components.ProgressPopup
 import com.skylake.skytv.jgorunner.ui.components.RedirectPopup
 import com.skylake.skytv.jgorunner.ui.screens.CastScreen
-import com.skylake.skytv.jgorunner.ui.screens.DebugScreen
+import com.skylake.skytv.jgorunner.ui.screens.ExtraScreen
 import com.skylake.skytv.jgorunner.ui.screens.HomeScreen
 import com.skylake.skytv.jgorunner.ui.screens.InfoScreen
 import com.skylake.skytv.jgorunner.ui.screens.LoginScreen
@@ -69,6 +70,7 @@ import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
+import com.skylake.skytv.jgorunner.services.CastManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,7 +85,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     companion object {
         private const val TAG = "JTVGo::MainActivity"
     }
@@ -175,7 +177,10 @@ class MainActivity : ComponentActivity() {
         JTVConfigurationManager.getInstance(this).saveJTVConfiguration()
         isServerRunning = BinaryService.isRunning
 
-        if (preferenceManager.myPrefs.setupPending) {
+        if (preferenceManager.myPrefs.setupPending &&
+            preferenceManager.myPrefs.operationMODE != 0 &&
+            preferenceManager.myPrefs.operationMODE != 1
+        ) {
             val intent = Intent(this, SetupWizardActivity::class.java)
             this.startActivity(intent)
 
@@ -232,7 +237,7 @@ class MainActivity : ComponentActivity() {
         val lastVersion = prefs.getLong("last_version_code", -1L)
 
         if (currentVersion > lastVersion) {
-            Log.d("App-DIX", "App updated")
+            Log.d("App-JGX", "App updated")
 
 
             val backupPrefs = skySharedPref.myPrefs.copy()
@@ -345,6 +350,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        CastManager.init(this)
 
         val sharedPref = getSharedPreferences("channel_cache", MODE_PRIVATE)
         try {
@@ -469,7 +475,7 @@ class MainActivity : ComponentActivity() {
                                 })
 
                             "Info" -> InfoScreen(context = this@MainActivity)
-                            "Debug" -> DebugScreen(
+                            "Extra" -> ExtraScreen(
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
 
@@ -525,7 +531,7 @@ class MainActivity : ComponentActivity() {
                                     "Opening WEBTV",
                                     Toast.LENGTH_SHORT
                                 ).show()
-                                Log.d("DIX", "Opening WEBTV")
+                                Log.d("JGX", "Opening WEBTV")
                                 return@LoginPopup
                             }
                         )
@@ -636,7 +642,7 @@ class MainActivity : ComponentActivity() {
                     currentScreen = "Zone"
                 }
 
-                "Debug" -> {
+                "Extra" -> {
                     currentScreen = "Home"
                 }
 
@@ -692,8 +698,8 @@ class MainActivity : ComponentActivity() {
                 return@launch
 
             val latestBinaryReleaseInfo = BinaryUpdater.fetchLatestReleaseInfo()
-            Log.d("DIX", "Current binary version: $currentBinaryVersion")
-            Log.d("DIX", "Latest binary version: ${latestBinaryReleaseInfo?.version}")
+            Log.d("JGX", "Current binary version: $currentBinaryVersion")
+            Log.d("JGX", "Latest binary version: ${latestBinaryReleaseInfo?.version}")
 
             Log.d(TAG, "$latestBinaryReleaseInfo,--,$currentBinaryVersion")
 
@@ -704,7 +710,7 @@ class MainActivity : ComponentActivity() {
                 ) == 1
             ) {
                 showBinaryUpdatePopup = true
-                Log.d("DIX", "Binary update available")
+                Log.d("JGX", "Binary update available")
             } else {
                 if (forceCheck) {
                     CoroutineScope(Dispatchers.Main).launch {
@@ -728,7 +734,7 @@ class MainActivity : ComponentActivity() {
             val latestAppVersion = ApplicationUpdater.fetchLatestReleaseInfo()
             if (latestAppVersion?.version?.compareTo(SemanticVersionNew.parse(currentAppVersion)) == 1) {
                 showAppUpdatePopup = true
-                Log.d("DIX", "App update available")
+                Log.d("JGX", "App update available")
             } else {
                 if (forceCheck) {
                     CoroutineScope(Dispatchers.Main).launch {
@@ -766,15 +772,15 @@ class MainActivity : ComponentActivity() {
                 url = latestBinaryReleaseInfo.downloadUrl,
                 fileName = latestBinaryReleaseInfo.name,
                 path = filesDir.absolutePath,
-                onDownloadStatusUpdate = { DownloadModelNew ->
-                    when (DownloadModelNew.status) {
+                onDownloadStatusUpdate = { downloadModelNew ->
+                    when (downloadModelNew.status) {
                         Status.CANCELLED -> {
                             this@MainActivity.downloadProgress = null
                         }
 
                         Status.FAILED -> {
-                            Log.e("DIX", "Download failed")
-                            Log.e("DIX", DownloadModelNew.failureReason)
+                            Log.e("JGX", "Download failed")
+                            Log.e("JGX", downloadModelNew.failureReason)
                             this@MainActivity.downloadProgress = null
                         }
 
@@ -799,8 +805,8 @@ class MainActivity : ComponentActivity() {
 
                         else -> {
                             this@MainActivity.downloadProgress = DownloadProgress(
-                                fileName = DownloadModelNew.fileName,
-                                progress = DownloadModelNew.progress
+                                fileName = downloadModelNew.fileName,
+                                progress = downloadModelNew.progress
                             )
                         }
                     }
@@ -840,12 +846,12 @@ class MainActivity : ComponentActivity() {
 
                     // Create the file output stream
                     val file = File(path, fileName)
-                    response.body?.byteStream()?.use { inputStream ->
+                    response.body.byteStream().use { inputStream ->
                         file.outputStream().use { outputStream ->
                             val buffer = ByteArray(8192)
                             var bytesRead: Int
                             var totalBytesRead = 0L
-                            val contentLength = response.body?.contentLength() ?: -1L
+                            val contentLength = response.body.contentLength()
 
                             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                                 outputStream.write(buffer, 0, bytesRead)
@@ -1060,7 +1066,7 @@ class MainActivity : ComponentActivity() {
         val appName = preferenceManager.myPrefs.iptvAppName
 
         if (appPackageName.isNullOrEmpty() || currentScreen == "Zone") {
-            Log.d("DIX", "IPTV not set or already on Zone screen")
+            Log.d("JGX", "IPTV not set or already on Zone screen")
             return
         }
 
@@ -1068,20 +1074,20 @@ class MainActivity : ComponentActivity() {
             try {
                 when (appPackageName) {
                     "webtv" -> runOnUiThread {
-                        Log.d("DIX", "Opening WEBTV")
+                        Log.d("JGX", "Opening WEBTV")
                         toast("Opening WEBTV")
                         startActivity(Intent(this, WebPlayerActivity::class.java))
                     }
 
                     "tvzone" -> runOnUiThread {
-                        Log.d("DIX", "Opening TVZone")
+                        Log.d("JGX", "Opening TVZone")
                         toast("Starting TV")
                         currentScreen = "Zone"
                     }
 
                     "sonata" -> {
 //                        toast("Starting Sonata")
-                        Log.d("DIX", "Opening Sonata")
+                        Log.d("JGX", "Opening Sonata")
                         val intent = Intent(this, LandingPage::class.java)
                         this.startActivity(intent)
                     }
@@ -1090,18 +1096,18 @@ class MainActivity : ComponentActivity() {
                         val launchIntent = packageManager.getLaunchIntentForPackage(appPackageName)
                         runOnUiThread {
                             if (launchIntent != null) {
-                                Log.d("DIX", "Opening $appName")
+                                Log.d("JGX", "Opening $appName")
                                 toast("Opening $appName")
                                 startActivity(launchIntent)
                             } else {
-                                Log.d("DIX", "Cannot find: $appPackageName")
+                                Log.d("JGX", "Cannot find: $appPackageName")
                                 toast("Cannot find the specified application")
                             }
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e("DIX", "Error starting IPTV", e)
+                Log.e("JGX", "Error starting IPTV", e)
                 runOnUiThread { toast("Error starting IPTV") }
             }
         }
@@ -1115,30 +1121,30 @@ class MainActivity : ComponentActivity() {
 
         if (appPackageName.isNullOrEmpty() || currentScreen == "Zone") {
             toast("IPTV app not selected")
-            Log.d("DIX", "IPTV app not selected or already on Zone screen")
+            Log.d("JGX", "IPTV app not selected or already on Zone screen")
             startActivity(Intent(this, AppListActivity::class.java))
             return
         }
 
-        Log.d("DIX", "IPTV Package: $appPackageName")
+        Log.d("JGX", "IPTV Package: $appPackageName")
 
         try {
             when (appPackageName) {
                 "webtv" -> {
                     startActivity(Intent(this, WebPlayerActivity::class.java))
                     toast("Starting: $appName")
-                    Log.d("DIX", "Opening WebTV")
+                    Log.d("JGX", "Opening WebTV")
                 }
 
                 "tvzone" -> {
                     toast("Starting TV")
-                    Log.d("DIX", "Opening TVZone")
+                    Log.d("JGX", "Opening TVZone")
                     currentScreen = "Zone"
                 }
 
                 "sonata" -> {
                     toast("Starting Sonata")
-                    Log.d("DIX", "Opening Sonata")
+                    Log.d("JGX", "Opening Sonata")
                     val intent = Intent(this, LandingPage::class.java)
                     this.startActivity(intent)
                 }
@@ -1146,11 +1152,11 @@ class MainActivity : ComponentActivity() {
                 else -> {
                     if (appLaunchActivity.isNullOrEmpty()) {
                         toast("App launch activity not found")
-                        Log.d("DIX", "Launch activity not set for $appPackageName")
+                        Log.d("JGX", "Launch activity not set for $appPackageName")
                         return
                     }
 
-                    Log.d("DIX", "Launch Activity: $appLaunchActivity")
+                    Log.d("JGX", "Launch Activity: $appLaunchActivity")
 
                     val launchIntent = Intent().apply {
                         component = ComponentName(appPackageName, appLaunchActivity)
@@ -1160,15 +1166,15 @@ class MainActivity : ComponentActivity() {
                     if (launchIntent.resolveActivity(packageManager) != null) {
                         startActivity(launchIntent)
                         toast("Starting: $appName")
-                        Log.d("DIX", "Launching $appName via $appLaunchActivity")
+                        Log.d("JGX", "Launching $appName via $appLaunchActivity")
                     } else {
                         toast("App not found")
-                        Log.d("DIX", "Failed to resolve app: $appPackageName / $appLaunchActivity")
+                        Log.d("JGX", "Failed to resolve app: $appPackageName / $appLaunchActivity")
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e("DIX", "Error launching IPTV app", e)
+            Log.e("JGX", "Error launching IPTV app", e)
             toast("Error launching IPTV app")
         }
     }

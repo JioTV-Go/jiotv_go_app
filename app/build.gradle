@@ -61,8 +61,8 @@ android {
     packagingOptions {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
-//            exclude "lib/x86/**"
-//            exclude "lib/x86_64/**"
+            exclude "lib/x86/**"
+            exclude "lib/x86_64/**"
         }
     }
 //    lint {
@@ -101,7 +101,6 @@ dependencies {
     implementation libs.androidx.appcompat
     implementation libs.androidx.mediarouter
 //----------------------------------------------------------
-//    Skipping FFMPEG
 //    implementation 'io.github.maitrungduc1410:ffmpeg-kit-min:6.0.1'
 //----------------------------------------------------------
     implementation libs.androidx.tv.foundation

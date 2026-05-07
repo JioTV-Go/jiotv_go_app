@@ -156,7 +156,7 @@ object BinaryExecutor {
 
                 // First attempt to stop the process gracefully
                 binaryProcess!!.destroy()
-                Log.i(TAG + "DIX", "Process destroyed.")
+                Log.i(TAG + "JGX", "Process destroyed.")
 
                 // If needed, escalate to forcibly destroying it
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
