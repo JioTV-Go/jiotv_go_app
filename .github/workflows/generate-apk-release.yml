@@ -45,9 +45,9 @@ jobs:
       - name: Change permissions for gradlew
         run: chmod +x ./gradlew
 
-      # Build all modules
-      - name: Build gradle project
-        run: ./gradlew build
+      # # Build all modules
+      # - name: Build gradle project
+      #   run: ./gradlew build
 
       # Assemble release APK for main module
       - name: Build release APK
