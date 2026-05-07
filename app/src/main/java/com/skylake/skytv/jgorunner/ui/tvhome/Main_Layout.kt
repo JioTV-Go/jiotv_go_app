@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,8 +83,6 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     var isEpgLoading by remember { mutableStateOf(false) }
     var epgError by remember { mutableStateOf(false) }
     var showLoading by remember { mutableStateOf(false) }
-    var reloadAttemptCount by rememberSaveable { mutableIntStateOf(0) }
-    var waitingDots by remember { mutableStateOf("") }
     val coroutineScope = rememberCoroutineScope()
 
     remember { FocusRequester() }
@@ -122,6 +119,8 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         listOf(allCategoryName) + selectedOtherCategories + unselectedOtherCategories
     }
 
+    val hasApiData = channelsResponse.value?.result?.isNotEmpty() == true
+    val isNoDataFromServer = fetched && !hasApiData
 
     // Helper functions for enhanced autoplay
     suspend fun fetchFromBackend(): List<Channel> {
@@ -209,7 +208,15 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     }
                 }
             }
-            kotlinx.coroutines.delay(2000)
+            delay(2000)
+        }
+    }
+
+    LaunchedEffect(isNoDataFromServer) {
+        if (isNoDataFromServer) {
+            delay(3000)
+            val data = fetchFromBackend()
+            filteredChannels.value = data
         }
     }
 
@@ -317,7 +324,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     // ignore, retry
                 }
                 if (!success) {
-                    kotlinx.coroutines.delay(300)
+                    delay(300)
                 }
             }
             fetched = true
@@ -354,7 +361,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     putExtra("ch_name", firstChannel.channel_name)
                 }
 
-                kotlinx.coroutines.delay(1000)
+                delay(1000)
 
                 if (context !is Activity) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -384,8 +391,10 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                 preferenceManager.myPrefs.recentChannels = Gson().toJson(recentChannels)
                 preferenceManager.savePreferences()
             } else {
-                // Watchdog for reliability
-                watchdogAutoplay(channelsForAutoplay)
+                if (channelsForAutoplay.isEmpty()) return@LaunchedEffect
+                else {
+                    watchdogAutoplay(channelsForAutoplay)
+                }
             }
 
             AppStartTracker.shouldPlayChannel = true
@@ -408,49 +417,36 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         }
     }
 
-    LaunchedEffect(fetched, filteredChannels.value, reloadAttemptCount) {
-        if (fetched && filteredChannels.value.isEmpty() && reloadAttemptCount < 2) {
-            waitingDots = ""
-            for (i in 1..6) {
-                waitingDots += "."
-                delay(300)
-            }
-            reloadAttemptCount++
-            showLoading = true
-            val fetchedChannels = fetchFromBackend()
-            filteredChannels.value = fetchedChannels
-            showLoading = false
-        }
-    }
 
     // Fetch EPG data for selected channel
-    LaunchedEffect(selectedChannel) {
-        if (selectedChannel != null) {
-            isEpgLoading = true
-            epgError = false
-            val epgURL = "$basefinURL/epg/${selectedChannel!!.channel_id}/0"
-            Log.d("EPG_FETCH", epgURL)
-
-            try {
-                val fetchedEpg = ChannelUtils.fetchEpg(epgURL)
-                if (fetchedEpg != null) {
-                    epgData = fetchedEpg
-                } else {
-                    epgData = null
-                    epgError = true
-                }
-            } catch (_: Exception) {
-                epgData = null
-                epgError = true
-            } finally {
-                isEpgLoading = false
-            }
-        } else {
-            epgData = null
-            epgError = false
-            isEpgLoading = false
-        }
-    }
+    // Error from source
+//    LaunchedEffect(selectedChannel) {
+//        if (selectedChannel != null) {
+//            isEpgLoading = true
+//            epgError = false
+//            val epgURL = "$basefinURL/epg/${selectedChannel!!.channel_id}/0"
+//            Log.d("EPG_FETCH", epgURL)
+//
+//            try {
+//                val fetchedEpg = ChannelUtils.fetchEpg(epgURL)
+//                if (fetchedEpg != null) {
+//                    epgData = fetchedEpg
+//                } else {
+//                    epgData = null
+//                    epgError = true
+//                }
+//            } catch (_: Exception) {
+//                epgData = null
+//                epgError = true
+//            } finally {
+//                isEpgLoading = false
+//            }
+//        } else {
+//            epgData = null
+//            epgError = false
+//            isEpgLoading = false
+//        }
+//    }
 
     LaunchedEffect(fetched) {
         if (!fetched) {
@@ -471,51 +467,43 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         }
     }
     // UI: Empty state
-    else if (fetched && filteredChannels.value.isEmpty()) {
+    else if (isNoDataFromServer) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.fillMaxSize()
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+
                 Text(
-                    text = "No channels found",
+                    text = "No channels available",
                     style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold),
                     color = Color.Red
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(text = waitingDots, style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold))
+
                 Spacer(modifier = Modifier.height(10.dp))
+
                 Text(
-                    text = "Try the following steps:",
-                    style = TextStyle(fontSize = 16.sp)
+                    text = "Server not responding or no data received",
+                    style = TextStyle(fontSize = 14.sp, color = Color.Gray)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "\n• Check your internet connection\n• Reload the app\n• Go to Main Screen for detailed information",
-                    style = TextStyle(fontSize = 15.sp, color = Color.Gray)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
+
+                Spacer(modifier = Modifier.height(20.dp))
+
                 ElevatedCard(
                     onClick = {
-                        reloadAttemptCount++
-                        (context as? Activity)?.let { activity ->
-                            val intent = activity.intent
-                            activity.finish()
-                            activity.startActivity(intent)
+                        coroutineScope.launch {
+                            val data = fetchFromBackend()
+                            filteredChannels.value = data
                         }
-                    },
-                    modifier = Modifier.padding(top = 8.dp)
+                    }
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Reload"
-                        )
+                        Icon(Icons.Default.Refresh, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Reload App")
+                        Text("Retry")
                     }
                 }
             }

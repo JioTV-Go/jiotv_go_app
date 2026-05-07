@@ -49,6 +49,7 @@ import com.skylake.skytv.jgorunner.data.SkySharedPref
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.Inet4Address
+import com.google.android.gms.cast.framework.CastButtonFactory
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -150,15 +151,12 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                 )
 
                 AndroidView(
-                    factory = { context ->
-                        MediaRouteButton(context).apply {
-                            val mediaRouteSelector = castContext.mergedSelector
-                            if (mediaRouteSelector != null) {
-                                setRouteSelector(mediaRouteSelector)
-                            }
+                    factory = { ctx ->
+                        MediaRouteButton(ctx).apply {
+                            CastButtonFactory.setUpMediaRouteButton(ctx, this)
                         }
                     },
-                    modifier = Modifier.padding(0.dp)
+                    modifier = Modifier
                 )
 
                 Text(
@@ -190,8 +188,8 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                         webViewClient = CustomWebViewClient(
                             context,
                             prefManager = prefManager,
-                            isProcessing = isProcessing,
-                            isSessionConnected = isSessionConnected
+                            isSessionConnected = { isSessionConnected.value },
+                            onProcessingChange = { isProcessing.value = it }
                         )
                         loadUrl(viewURL)
                     }
@@ -206,12 +204,12 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
 
 private class CustomWebViewClient(
     val context: Context,
-    val isSessionConnected: MutableState<Boolean>,
+    private val isSessionConnected: () -> Boolean,
     private val prefManager: SkySharedPref,
-    private val isProcessing: MutableState<Boolean>,
+    private val onProcessingChange: (Boolean) -> Unit,
 ) : WebViewClient() {
     private val TAG = "CustomWebViewClient"
-    private val TAG2 = "CastScreen-DIX"
+    private val TAG2 = "CastScreen-JGX"
     private var initURL: String? = null
     private var currentPlayId: String? = null
     private var currentLogoUrl: String? = null
@@ -275,16 +273,16 @@ private class CustomWebViewClient(
                 Log.d(TAG2, newPlayerURL)
                 // Cast Session Skipper
 //                 if (true) {
-                if (isSessionConnected.value) {
-                    // Skipping CrossCode [FFMPEGKIT]
+                if (isSessionConnected()) {
+                    // CrossCode [FFMPEGKIT]
 //                    crosscode(
 //                        context = context,
 //                        videoUrl = newPlayerURL,
-//                        onProcessingStart = { isProcessing.value = true },
-//                        onProcessingEnd = { isProcessing.value = false }
+//                        onProcessingStart = { onProcessingChange(true) },
+//                        onProcessingEnd = { onProcessingChange(false) }
 //                    )
 
-                    // Direct Streaming - only few channels are working
+                    // Skipping Direct Streaming - only few channels are working
 
                      val ipAddress = getPublicJTVServerURL(context)
                      fun ensureM3U8Suffix(url: String) = url.takeIf { it.endsWith(".m3u8") } ?: "$url.m3u8"

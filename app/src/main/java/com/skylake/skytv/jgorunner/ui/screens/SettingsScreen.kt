@@ -527,10 +527,10 @@ fun SettingsScreen(
             with(sharedPref.edit()) {
                 remove("channels_json")
                 apply()
-                Log.d("DIX-SetSec", "Cleared channel cache")
+                Log.d("JGX-SetSec", "Cleared channel cache")
             }
         } catch (e: Exception) {
-            Log.e("DIX-SetSec", "Error message", e)
+            Log.e("JGX-SetSec", "Error message", e)
         }
 
         Dialog(

@@ -74,7 +74,6 @@ import com.skylake.skytv.jgorunner.activities.CastActivity
 import com.skylake.skytv.jgorunner.activities.setup_wizard.SetupWizardActivity
 import com.skylake.skytv.jgorunner.core.update.DownloadModelNew
 import com.skylake.skytv.jgorunner.data.SkySharedPref
-import com.skylake.skytv.jgorunner.services.player.LandingPage
 import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.ui.components.ButtonContent
 import com.skylake.skytv.jgorunner.ui.components.PreReleaseBinary
@@ -89,7 +88,7 @@ import kotlinx.coroutines.launch
 
 @SuppressLint("UnrememberedMutableState")
 @Composable
-fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
+fun ExtraScreen(context: Context, onNavigate: (String) -> Unit) {
     val customFontFamily = FontFamily(Font(R.font.chakrapetch_bold))
     var isGlowing by remember { mutableStateOf(false) }
     val glowColors = listOf(
@@ -347,7 +346,7 @@ fun DebugScreen(context: Context, onNavigate: (String) -> Unit) {
                         )
                     },
                     onClick2 = {
-                        Log.d("DIX", "PREBin Updater")
+                        Log.d("JGX", "PREBin Updater")
                         showPreReleaseBinaryDialog = true
                     },
                     enabled = true,

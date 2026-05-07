@@ -96,8 +96,10 @@
 
         <activity
             android:name=".activities.WebPlayerActivity"
+            android:screenOrientation="sensor"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
-            android:resizeableActivity="true">
+            android:resizeableActivity="true"
+            tools:ignore="DiscouragedApi">
         </activity>
 
         <activity
