@@ -350,7 +350,7 @@ class MainActivity : FragmentActivity() {
             )
         }
 
-        CastManager.init(this)
+//        CastManager.init(this)
 
         val sharedPref = getSharedPreferences("channel_cache", MODE_PRIVATE)
         try {

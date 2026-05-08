@@ -121,44 +121,46 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     val isTv = isTelevision()
 
 
-    val isSessionConnected = remember { mutableStateOf(false) }
-    val castContext = remember {
-        CastContext.getSharedInstance(context)
-    }
-    val sessionManagerListener = remember {
-        object : SessionManagerListener<CastSession> {
-            override fun onSessionStarted(session: CastSession, sessionId: String) {
-                isSessionConnected.value = true
-            }
-
-            override fun onSessionEnded(session: CastSession, error: Int) {
-                isSessionConnected.value = false
-            }
-
-            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-                isSessionConnected.value = true
-            }
-
-            override fun onSessionStarting(session: CastSession) {}
-            override fun onSessionStartFailed(session: CastSession, error: Int) {}
-            override fun onSessionEnding(session: CastSession) {}
-            override fun onSessionResuming(session: CastSession, sessionId: String) {}
-            override fun onSessionResumeFailed(session: CastSession, error: Int) {}
-            override fun onSessionSuspended(session: CastSession, reason: Int) {}
-        }
-    }
-
-    DisposableEffect(castContext) {
-        val sessionManager = castContext.sessionManager
-        sessionManager.addSessionManagerListener(sessionManagerListener, CastSession::class.java)
-        onDispose {
-            sessionManager.removeSessionManagerListener(sessionManagerListener, CastSession::class.java)
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        isSessionConnected.value = castContext.sessionManager.currentCastSession?.isConnected == true
-    }
+//    val isSessionConnected = remember { mutableStateOf(false) }
+//
+//    val castContext = remember {
+//        CastContext.getSharedInstance(context)
+//    }
+//
+//    val sessionManagerListener = remember {
+//        object : SessionManagerListener<CastSession> {
+//            override fun onSessionStarted(session: CastSession, sessionId: String) {
+//                isSessionConnected.value = true
+//            }
+//
+//            override fun onSessionEnded(session: CastSession, error: Int) {
+//                isSessionConnected.value = false
+//            }
+//
+//            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
+//                isSessionConnected.value = true
+//            }
+//
+//            override fun onSessionStarting(session: CastSession) {}
+//            override fun onSessionStartFailed(session: CastSession, error: Int) {}
+//            override fun onSessionEnding(session: CastSession) {}
+//            override fun onSessionResuming(session: CastSession, sessionId: String) {}
+//            override fun onSessionResumeFailed(session: CastSession, error: Int) {}
+//            override fun onSessionSuspended(session: CastSession, reason: Int) {}
+//        }
+//    }
+//
+//    DisposableEffect(castContext) {
+//        val sessionManager = castContext.sessionManager
+//        sessionManager.addSessionManagerListener(sessionManagerListener, CastSession::class.java)
+//        onDispose {
+//            sessionManager.removeSessionManagerListener(sessionManagerListener, CastSession::class.java)
+//        }
+//    }
+//
+//    LaunchedEffect(Unit) {
+//        isSessionConnected.value = castContext.sessionManager.currentCastSession?.isConnected == true
+//    }
 
     // Back press handler
     HandleTvBackKey {
@@ -237,37 +239,37 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val castGlowColor = if (isSessionConnected.value) Color.Green else Color.Transparent
+//                    val castGlowColor = if (isSessionConnected.value) Color.Green else Color.Transparent
 
-                    if (false)
-                        AndroidView(
-                            modifier = Modifier
-                                .then(
-                                    if (isSessionConnected.value) {
-                                        Modifier
-                                            .shadow(
-                                                elevation = 8.dp,
-                                                shape = MaterialTheme.shapes.small,
-                                                ambientColor = castGlowColor,
-                                                spotColor = castGlowColor
-                                            )
-                                    } else Modifier
-                                ),
-                            factory = { ctx ->
-                                val themedContext = ContextThemeWrapper(
-                                    ctx,
-                                    R.style.Theme_JGO
-                                )
-
-                                MediaRouteButton(
-                                    themedContext,
-                                    null,
-                                    androidx.mediarouter.R.attr.mediaRouteButtonStyle
-                                ).apply {
-                                    CastButtonFactory.setUpMediaRouteButton(themedContext, this)
-                                }
-                            }
-                        )
+//                    if (false)
+//                        AndroidView(
+//                            modifier = Modifier
+//                                .then(
+//                                    if (isSessionConnected.value) {
+//                                        Modifier
+//                                            .shadow(
+//                                                elevation = 8.dp,
+//                                                shape = MaterialTheme.shapes.small,
+//                                                ambientColor = castGlowColor,
+//                                                spotColor = castGlowColor
+//                                            )
+//                                    } else Modifier
+//                                ),
+//                            factory = { ctx ->
+//                                val themedContext = ContextThemeWrapper(
+//                                    ctx,
+//                                    R.style.Theme_JGO
+//                                )
+//
+//                                MediaRouteButton(
+//                                    themedContext,
+//                                    null,
+//                                    androidx.mediarouter.R.attr.mediaRouteButtonStyle
+//                                ).apply {
+//                                    CastButtonFactory.setUpMediaRouteButton(themedContext, this)
+//                                }
+//                            }
+//                        )
 
                     IconButton(
                         onClick = { onNavigate("SettingsTV") },
