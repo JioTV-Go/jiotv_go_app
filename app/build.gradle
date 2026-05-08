@@ -61,17 +61,18 @@ android {
     packagingOptions {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
-            exclude "lib/x86/**"
-            exclude "lib/x86_64/**"
+//            exclude "lib/x86/**"
+//            exclude "lib/x86_64/**"
         }
     }
-//    lint {
-//        checkReleaseBuilds false
-//        abortOnError false
-//        disable "NullSafeMutableLiveData"
-//        disable "RememberInComposition"
-//        disable "FrequentlyChangingValue"
-//    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+        disable "NullSafeMutableLiveData"
+        disable "RememberInComposition"
+        disable "FrequentlyChangingValue"
+    }
 
 }
 
