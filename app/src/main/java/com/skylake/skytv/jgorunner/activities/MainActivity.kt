@@ -27,9 +27,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +71,10 @@ import com.skylake.skytv.jgorunner.ui.screens.LoginScreenPop
 import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
+import com.skylake.skytv.jgorunner.ui.screens.CloudHomeScreen
+import com.skylake.skytv.jgorunner.ui.screens.CloudMainScreen
+import com.skylake.skytv.jgorunner.ui.screens.CloudPlayerScreen
+import com.skylake.skytv.jgorunner.data.model.CloudChannel
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 import com.skylake.skytv.jgorunner.services.CastManager
 import kotlinx.coroutines.CoroutineScope
@@ -95,7 +101,9 @@ class MainActivity : FragmentActivity() {
 
     // SharedPreferences for saving binary selection
     private var outputText by mutableStateOf("ℹ️ Output logs")
-    private var currentScreen by mutableStateOf("Home") // Manage current screen
+    private var currentScreen by mutableStateOf("CloudHome") // Manage current screen
+    private var selectedCloudChannel by mutableStateOf<CloudChannel?>(null)
+    private var cloudChannelList by mutableStateOf<List<CloudChannel>>(emptyList())
 
     private val executor = Executors.newSingleThreadExecutor()
     private var showBinaryUpdatePopup by mutableStateOf(false)
@@ -372,7 +380,7 @@ class MainActivity : FragmentActivity() {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        if (currentScreen != "Zone") {
+                        if (currentScreen != "Zone" && currentScreen != "CloudHome" && currentScreen != "CloudMain" && currentScreen != "CloudPlayer") {
                             BottomNavigationBar(
                                 currentScreen = currentScreen,
                                 setCurrentScreen = { currentScreen = it }
@@ -383,9 +391,34 @@ class MainActivity : FragmentActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding)
+                            .padding(if (currentScreen == "CloudPlayer") PaddingValues(0.dp) else innerPadding)
                     ) {
                         when (currentScreen) {
+                            "CloudHome" -> CloudHomeScreen(
+                                onNavigateToMain = { currentScreen = "CloudMain" }
+                            )
+                            "CloudMain" -> CloudMainScreen(
+                                onPlayChannel = { channel, list ->
+                                    selectedCloudChannel = channel
+                                    cloudChannelList = list
+                                    currentScreen = "CloudPlayer"
+                                },
+                                onExit = {
+                                    finish()
+                                    Process.killProcess(Process.myPid())
+                                    exitProcess(0)
+                                }
+                            )
+                            "CloudPlayer" -> {
+                                selectedCloudChannel?.let { channel ->
+                                    CloudPlayerScreen(
+                                        channel = channel,
+                                        channelList = cloudChannelList,
+                                        onChannelChange = { selectedCloudChannel = it },
+                                        onBack = { currentScreen = "CloudMain" }
+                                    )
+                                }
+                            }
                             "Home" -> HomeScreen(
                                 title = selectedBinaryName,
                                 titleShouldGlow = isGlowBox,
