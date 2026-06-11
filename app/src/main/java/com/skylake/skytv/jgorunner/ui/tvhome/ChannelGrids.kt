@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -33,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,8 +44,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +67,9 @@ import com.skylake.skytv.jgorunner.services.CastManager
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
 import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.utils.withQuality
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalGlideComposeApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -69,7 +82,57 @@ fun ChannelGridTV(
     val focusRequester = remember { FocusRequester() }
     val preferenceManager = remember { SkySharedPref.getInstance(context) }
     val isProcessing by CastManager.isProcessing
-    Box(modifier = Modifier.fillMaxSize()) {
+    val scope = rememberCoroutineScope()
+    var numericBuffer by remember { mutableStateOf("") }
+    var showNumericOverlay by remember { mutableStateOf(false) }
+    var numericJob by remember { mutableStateOf<Job?>(null) }
+
+    fun commitNumericEntry() {
+        val num = numericBuffer.toIntOrNull()
+        if (num != null && channels.isNotEmpty()) {
+            // Find channel by channelNumber first
+            val idx = channels.indexOfFirst { it.channelNumber == num }
+            val targetIdx = if (idx >= 0) idx else (num - 1).coerceIn(0, channels.size - 1)
+            val channel = channels[targetIdx]
+
+            val channelInfoList = ArrayList(channels.mapIndexed { i, it ->
+                ChannelInfo(it.url, it.logo ?: "", it.name, if (it.channelNumber > 0) it.channelNumber else i + 1)
+            })
+            val intent = Intent(context, ExoPlayJet::class.java).apply {
+                putParcelableArrayListExtra("channel_list_data", channelInfoList)
+                putExtra("current_channel_index", targetIdx)
+                putExtra("video_url", channel.url)
+                putExtra("logo_url", channel.logo ?: "")
+                putExtra("ch_name", channel.name)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+        numericBuffer = ""
+        showNumericOverlay = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown) {
+            val digit = when (event.key) {
+                Key.Zero -> 0; Key.One -> 1; Key.Two -> 2; Key.Three -> 3; Key.Four -> 4
+                Key.Five -> 5; Key.Six -> 6; Key.Seven -> 7; Key.Eight -> 8; Key.Nine -> 9
+                else -> null
+            }
+            if (digit != null && !(numericBuffer.isEmpty() && digit == 0) && numericBuffer.length < 4) {
+                numericBuffer += digit.toString()
+                showNumericOverlay = true
+                numericJob?.cancel()
+                numericJob = scope.launch {
+                    delay(1500)
+                    commitNumericEntry()
+                }
+                return@onPreviewKeyEvent true
+            }
+        }
+        false
+    }) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 100.dp),
             contentPadding = PaddingValues(16.dp),
@@ -93,8 +156,8 @@ fun ChannelGridTV(
                         .combinedClickable(
                             onClick = {
                                 Log.d("ChannelGridTV", "Open fullscreen: ${channel.name}")
-                                val channelInfoList = ArrayList(channels.map {
-                                    ChannelInfo(it.url, it.logo ?: "", it.name)
+                                val channelInfoList = ArrayList(channels.mapIndexed { idx, it ->
+                                    ChannelInfo(it.url, it.logo ?: "", it.name, if (it.channelNumber > 0) it.channelNumber else idx + 1)
                                 })
                                 val currentIndex = channels.indexOf(channel)
                                 val intent = Intent(context, ExoPlayJet::class.java).apply {
@@ -178,8 +241,8 @@ fun ChannelGridTV(
                                     PlayerCommandBus.requestSwitch(url = channel.url)
                                 } else {
                                     // Fallback to open fullscreen if not in PiP
-                                    val channelInfoList = ArrayList(channels.map {
-                                        ChannelInfo(it.url, it.logo ?: "", it.name)
+                                    val channelInfoList = ArrayList(channels.mapIndexed { idx, it ->
+                                        ChannelInfo(it.url, it.logo ?: "", it.name, if (it.channelNumber > 0) it.channelNumber else idx + 1)
                                     })
                                     val currentIndex = channels.indexOf(channel)
                                     val intent = Intent(context, ExoPlayJet::class.java).apply {
@@ -201,14 +264,31 @@ fun ChannelGridTV(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    GlideImage(
-                        model = channel.logo,
-                        contentDescription = "${channel.name} logo",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp),
-                        contentScale = ContentScale.Fit
-                    )
+                    Box {
+                        GlideImage(
+                            model = channel.logo,
+                            contentDescription = "${channel.name} logo",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        // Channel number badge
+                        val chNum = if (channel.channelNumber > 0) channel.channelNumber else channels.indexOf(channel) + 1
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(4.dp)
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "$chNum",
+                                color = Color.White,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
                     Text(
                         text = channel.name,
                         maxLines = 2,
@@ -248,6 +328,28 @@ fun ChannelGridTV(
                 }
             }
         }
+
+        // Number key OSD overlay
+        AnimatedVisibility(
+            visible = showNumericOverlay && numericBuffer.isNotEmpty(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 40.dp)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "CH $numericBuffer",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 28.sp
+                )
+            }
+        }
     }
 }
 
@@ -263,8 +365,63 @@ fun ChannelGridMain(
     val basefinURL = "http://localhost:$localPORT"
 
     val isProcessing by CastManager.isProcessing
+    val scope = rememberCoroutineScope()
+    var numericBuffer by remember { mutableStateOf("") }
+    var showNumericOverlay by remember { mutableStateOf(false) }
+    var numericJob by remember { mutableStateOf<Job?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    fun commitNumericEntry() {
+        val num = numericBuffer.toIntOrNull()
+        if (num != null && filteredChannels.isNotEmpty()) {
+            // Find channel by channel_number first
+            val idx = filteredChannels.indexOfFirst { it.channel_number == num }
+            val targetIdx = if (idx >= 0) idx else (num - 1).coerceIn(0, filteredChannels.size - 1)
+            val channel = filteredChannels[targetIdx]
+
+            val allChannelsData = ArrayList(filteredChannels.map { ch ->
+                ChannelInfo(
+                    withQuality(context, ch.channel_url),
+                    "$basefinURL/jtvimage/${ch.logoUrl}",
+                    ch.channel_name,
+                    ch.channel_number
+                )
+            })
+            val intent = Intent(context, ExoPlayJet::class.java).apply {
+                putExtra("zone", "TV")
+                putParcelableArrayListExtra("channel_list_data", allChannelsData)
+                putExtra("current_channel_index", targetIdx)
+                putExtra("video_url", channel.channel_url)
+                putExtra("logo_url", "$basefinURL/jtvimage/${channel.logoUrl}")
+                putExtra("ch_name", channel.channel_name)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        }
+        numericBuffer = ""
+        showNumericOverlay = false
+    }
+
+    Box(modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown) {
+            val digit = when (event.key) {
+                Key.Zero -> 0; Key.One -> 1; Key.Two -> 2; Key.Three -> 3; Key.Four -> 4
+                Key.Five -> 5; Key.Six -> 6; Key.Seven -> 7; Key.Eight -> 8; Key.Nine -> 9
+                else -> null
+            }
+            if (digit != null && !(numericBuffer.isEmpty() && digit == 0) && numericBuffer.length < 4) {
+                numericBuffer += digit.toString()
+                showNumericOverlay = true
+                numericJob?.cancel()
+                numericJob = scope.launch {
+                    delay(1500)
+                    commitNumericEntry()
+                }
+                return@onPreviewKeyEvent true
+            }
+        }
+        false
+    }) {
 
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 100.dp),
@@ -294,7 +451,8 @@ fun ChannelGridMain(
                                         ChannelInfo(
                                             withQuality(context, ch.channel_url),
                                             "$basefinURL/jtvimage/${ch.logoUrl}",
-                                            ch.channel_name
+                                            ch.channel_name,
+                                            ch.channel_number
                                         )
                                     })
                                     putParcelableArrayListExtra(
@@ -397,7 +555,8 @@ fun ChannelGridMain(
                                             ChannelInfo(
                                                 withQuality(context, ch.channel_url),
                                                 "$basefinURL/jtvimage/${ch.logoUrl}",
-                                                ch.channel_name
+                                                ch.channel_name,
+                                                ch.channel_number
                                             )
                                         })
                                         putParcelableArrayListExtra(
@@ -420,16 +579,32 @@ fun ChannelGridMain(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    val logoUrl = channel.logoUrl
-                    val imageUrl = "$basefinURL/jtvimage/$logoUrl"
-                    GlideImage(
-                        model = imageUrl,
-                        contentDescription = channel.channel_name,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp),
-                        contentScale = ContentScale.Fit
-                    )
+                    Box {
+                        val logoUrl = channel.logoUrl
+                        val imageUrl = "$basefinURL/jtvimage/$logoUrl"
+                        GlideImage(
+                            model = imageUrl,
+                            contentDescription = channel.channel_name,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        // Channel number badge
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(4.dp)
+                                .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "${channel.channel_number}",
+                                color = Color.White,
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
                     Text(
                         text = channel.channel_name,
                         fontSize = 12.sp,
@@ -468,6 +643,27 @@ fun ChannelGridMain(
         }
     }
 
+        // Number key OSD overlay
+        AnimatedVisibility(
+            visible = showNumericOverlay && numericBuffer.isNotEmpty(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 40.dp)
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "CH $numericBuffer",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 28.sp
+                )
+            }
+        }
     }
 
 }

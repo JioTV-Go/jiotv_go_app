@@ -218,8 +218,15 @@ fun ExoPlayJetScreen(
     fun commitNumericEntryLocal(list: ArrayList<ChannelInfo>?) {
         val num = numericBuffer.toIntOrNull()
         if (num != null && !list.isNullOrEmpty()) {
-            val idx = (num - 1).coerceIn(0, list.size - 1)
-            currentIndex = idx
+            // Find channel by its channel number
+            val idx = list.indexOfFirst { it.channelNumber == num }
+            if (idx >= 0) {
+                currentIndex = idx
+            } else {
+                // Fallback: treat as 1-based index for backward compatibility
+                val fallbackIdx = (num - 1).coerceIn(0, list.size - 1)
+                currentIndex = fallbackIdx
+            }
         }
         numericBuffer = ""
         showNumericOverlay = false
@@ -841,14 +848,14 @@ fun ExoPlayJetScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 40.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .background(Color.Black.copy(alpha = 0.7f))
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
                 Text(
-                    text = numericBuffer,
+                    text = "CH $numericBuffer",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp
+                    fontSize = 26.sp
                 )
             }
         }
@@ -939,10 +946,10 @@ fun ExoPlayJetScreen(
 
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = String.format("%02d", idx + 1),
+                                text = "${ch.channelNumber}",
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.width(40.dp)
+                                modifier = Modifier.width(48.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
 
@@ -1061,7 +1068,7 @@ fun ChannelInfoOverlay(
                             // Channel Number + Name
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = String.format("%02d", currentIndex + 1),
+                                    text = "${channelList?.getOrNull(currentIndex)?.channelNumber ?: (currentIndex + 1)}",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.headlineSmall,

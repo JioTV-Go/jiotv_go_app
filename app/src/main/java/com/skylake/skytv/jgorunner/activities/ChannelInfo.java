@@ -7,17 +7,20 @@ public class ChannelInfo implements Parcelable {
     String videoUrl;
     String logoUrl;
     String channelName;
+    int channelNumber;
 
-    public ChannelInfo(String videoUrl, String logoUrl, String channelName) {
+    public ChannelInfo(String videoUrl, String logoUrl, String channelName, int channelNumber) {
         this.videoUrl = videoUrl;
         this.logoUrl = logoUrl;
         this.channelName = channelName;
+        this.channelNumber = channelNumber;
     }
 
     protected ChannelInfo(Parcel in) {
         videoUrl = in.readString();
         logoUrl = in.readString();
         channelName = in.readString();
+        channelNumber = in.readInt();
     }
 
     public static final Creator<ChannelInfo> CREATOR = new Creator<>() {
@@ -42,10 +45,12 @@ public class ChannelInfo implements Parcelable {
         dest.writeString(videoUrl);
         dest.writeString(logoUrl);
         dest.writeString(channelName);
+        dest.writeInt(channelNumber);
     }
 
     // Getters
     public String getVideoUrl() { return videoUrl; }
     public String getLogoUrl() { return logoUrl; }
     public String getChannelName() { return channelName; }
+    public int getChannelNumber() { return channelNumber; }
 }
