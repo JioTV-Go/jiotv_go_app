@@ -569,7 +569,9 @@ class MainActivity : FragmentActivity() {
                                 performAppUpdate()
                                 showAppUpdatePopup = true
                             },
-                            onDismiss = null
+                            onDismiss = {
+                                showAppUpdatePopup = false
+                            }
                         )
 
                         if (downloadProgress != null) {
