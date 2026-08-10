@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import androidx.core.content.edit
+import kotlinx.coroutines.withContext
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
     val preferenceManager = SkySharedPref.getInstance(application)
@@ -55,8 +56,70 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         loadRecentChannels()
         loadChannels(forceRefresh = false)
     }
+    fun loadChannels(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            
+            if (_allChannels.value.isEmpty()) {
+                _isLoading.value = true
+            }
+            _isError.value = false
 
-    fun loadChannels(forceRefresh: Boolean) {
+            withContext(Dispatchers.IO) {
+                
+                if (!forceRefresh) {
+                    val cachedJson = channelCachePrefs.getString("channels_json", null)
+                    if (!cachedJson.isNullOrEmpty()) {
+                        try {
+                            val cachedResponse = gson.fromJson(cachedJson, ChannelResponse::class.java)
+                            if (!cachedResponse.result.isNullOrEmpty()) {
+                                _allChannels.value = cachedResponse.result
+                                applyFilters(cachedResponse.result)
+
+                                
+                                _isLoading.value = false
+                            }
+                        } catch (e: Exception) {
+                            Log.e("TvViewModel", "Error parsing cache", e)
+                            channelCachePrefs.edit { remove("channels_json") }
+                        }
+                    }
+                }
+
+                
+                if (forceRefresh || _allChannels.value.isEmpty()) {
+                    _isLoading.value = true
+                }
+                
+                try {
+                    val response = ChannelUtils.fetchChannels("$basefinURL/channels")
+                    if (response != null && !response.result.isNullOrEmpty()) {
+                        _allChannels.value = response.result
+
+                        
+                        channelCachePrefs.edit {
+                            putString("channels_json", gson.toJson(response))
+                        }
+
+                        applyFilters(response.result)
+                        _isError.value = false
+                    } else if (_allChannels.value.isEmpty()) {
+                        
+                        _isError.value = true
+                    }
+                } catch (e: Exception) {
+                    Log.e("TvViewModel", "Network error while fetching channels", e)
+                    
+                    if (_allChannels.value.isEmpty()) {
+                        _isError.value = true
+                    }
+                } finally {
+                    _isLoading.value = false
+                }
+            }
+        }
+    }
+
+    fun loadChannelsw(forceRefresh: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             _isError.value = false
 
@@ -67,7 +130,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                         val cachedResponse = gson.fromJson(cachedJson, ChannelResponse::class.java)
                         _allChannels.value = cachedResponse.result
                         applyFilters(cachedResponse.result)
-                        _isLoading.value = false // Stop loading once cache is shown
+                        _isLoading.value = false 
                     } catch (e: Exception) {
                         channelCachePrefs.edit { remove("channels_json") }
                     }
@@ -102,7 +165,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     fun applyFilters(channels: List<Channel> = _allChannels.value, newCategoryIds: Set<Int>? = null) {
         viewModelScope.launch(Dispatchers.Default) {
-            // FIX: If newCategoryIds is provided but empty, make it null so the filter doesn't hide everything
+            
             val activeCategoryIds = if (newCategoryIds != null) {
                 newCategoryIds.toList().takeIf { it.isNotEmpty() }
             } else {

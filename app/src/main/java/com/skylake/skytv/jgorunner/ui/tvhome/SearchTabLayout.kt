@@ -1,13 +1,16 @@
+
 package com.skylake.skytv.jgorunner.ui.tvhome
 
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,9 +71,17 @@ import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalGlideComposeApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(
+    ExperimentalGlideComposeApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalFoundationApi::class
+)
 @Composable
-fun SearchTabLayout(context: Context, focusRequester: FocusRequester) {
+fun SearchTabLayout(
+    context: Context,
+    focusRequester: FocusRequester,
+    tvViewModel: TvViewModel
+) {
     val scope = rememberCoroutineScope()
     val scope2 = rememberCoroutineScope()
     val channelsResponse = remember { mutableStateOf<ChannelResponse?>(null) }
@@ -99,7 +110,7 @@ fun SearchTabLayout(context: Context, focusRequester: FocusRequester) {
 
                 fetched = true
 
-                // focus search bar
+
                 scope2.launch {
                     delay(10)
                     searchBarFocusRequester.requestFocus()
@@ -137,7 +148,6 @@ fun SearchTabLayout(context: Context, focusRequester: FocusRequester) {
                 onUPKey = { focusRequester.requestFocus() }
             )
 
-            // 🔹 Only show results when user has typed something
             if (searchText.isNotBlank()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 100.dp),
@@ -164,42 +174,50 @@ fun SearchTabLayout(context: Context, focusRequester: FocusRequester) {
                                 .onFocusEvent { focusState ->
                                     isFocused = focusState.isFocused
                                 }
-                                .clickable {
-                                    Log.d("HT", channel.channel_name)
-                                    val intent = Intent(context, ExoPlayJet::class.java).apply {
-                                        putExtra("video_url", channel.channel_url)
-                                    }
-                                    if (context !is Activity) {
-                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
 
-                                    // 🔹 Save to recents
-                                    val recentChannelsJson = preferenceManager.myPrefs.recentChannels
-                                    val type = object : TypeToken<List<Channel>>() {}.type
-                                    val recentChannels: MutableList<Channel> =
-                                        Gson().fromJson(recentChannelsJson, type)
-                                            ?: mutableListOf()
-
-                                    val existingIndex =
-                                        recentChannels.indexOfFirst { it.channel_id == channel.channel_id }
-
-                                    if (existingIndex != -1) {
-                                        val existingChannel = recentChannels[existingIndex]
-                                        recentChannels.removeAt(existingIndex)
-                                        recentChannels.add(0, existingChannel)
-                                    } else {
-                                        recentChannels.add(0, channel)
-                                        if (recentChannels.size > 25) {
-                                            recentChannels.removeAt(recentChannels.size - 1)
+                                .combinedClickable(
+                                    onClick = {
+                                        Log.d("HT", channel.channel_name)
+                                        val intent = Intent(context, ExoPlayJet::class.java).apply {
+                                            putExtra("video_url", channel.channel_url)
                                         }
-                                    }
+                                        if (context !is Activity) {
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
 
-                                    val gson = Gson()
-                                    val recentChannelsJsonx = gson.toJson(recentChannels)
-                                    preferenceManager.myPrefs.recentChannels = recentChannelsJsonx
-                                    preferenceManager.savePreferences()
-                                },
+
+                                        val recentChannelsJson = preferenceManager.myPrefs.recentChannels
+                                        val type = object : TypeToken<List<Channel>>() {}.type
+                                        val recentChannels: MutableList<Channel> =
+                                            Gson().fromJson(recentChannelsJson, type)
+                                                ?: mutableListOf()
+
+                                        val existingIndex =
+                                            recentChannels.indexOfFirst { it.channel_id == channel.channel_id }
+
+                                        if (existingIndex != -1) {
+                                            val existingChannel = recentChannels[existingIndex]
+                                            recentChannels.removeAt(existingIndex)
+                                            recentChannels.add(0, existingChannel)
+                                        } else {
+                                            recentChannels.add(0, channel)
+                                            if (recentChannels.size > 25) {
+                                                recentChannels.removeAt(recentChannels.size - 1)
+                                            }
+                                        }
+
+                                        val gson = Gson()
+                                        val recentChannelsJsonx = gson.toJson(recentChannels)
+                                        preferenceManager.myPrefs.recentChannels = recentChannelsJsonx
+                                        preferenceManager.savePreferences()
+                                    },
+                                    onLongClick = {
+
+                                        tvViewModel.toggleFavorite(channel)
+                                        Toast.makeText(context, "${channel.channel_name} favorites updated", Toast.LENGTH_SHORT).show()
+                                    }
+                                ),
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                             )
@@ -235,7 +253,6 @@ fun SearchTabLayout(context: Context, focusRequester: FocusRequester) {
         }
     }
 }
-
 
 @Composable
 fun SearchBar(

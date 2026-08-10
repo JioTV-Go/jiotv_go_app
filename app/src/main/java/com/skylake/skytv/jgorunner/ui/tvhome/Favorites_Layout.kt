@@ -211,11 +211,8 @@ fun Favorites_Layout(
                                         
                                         onLongClick = if (!isSortModeActive) {
                                             {
-                                                isSortModeActive = true
-                                                movingChannelId = channel.channel_id
-                                                focusRequester.requestFocus()
-                                                Toast.makeText(context, "Sort Mode Active", Toast.LENGTH_SHORT).show()
-                                            }
+                                                viewModel.toggleFavorite(channel)
+                                                Toast.makeText(context, "${channel.channel_name} favorite toggled", Toast.LENGTH_SHORT).show() }
                                         } else null
                                     ),
                                 border = if (isBeingMoved) BorderStroke(4.dp, Color.Red)

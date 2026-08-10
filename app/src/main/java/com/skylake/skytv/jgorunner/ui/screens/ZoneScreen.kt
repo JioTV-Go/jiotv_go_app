@@ -370,7 +370,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                         0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
                         1 -> Favorites_Layout(context, viewModel = tvViewModel, basefinURL = tvViewModel.basefinURL)
 //                        2 -> Recent_Layout(context, viewModel = tvViewModel, basefinURL = tvViewModel.basefinURL)
-                        2 -> SearchTabLayout(context, tabFocusRequester)
+                        2 -> SearchTabLayout(context, tabFocusRequester, tvViewModel)
                     }
                 }
             }
