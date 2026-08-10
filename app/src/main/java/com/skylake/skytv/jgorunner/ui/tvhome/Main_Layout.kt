@@ -10,8 +10,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -121,15 +123,64 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
             ShimmerChannelGrid()
         }
         isError && filteredChannels.isEmpty() -> {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No channels available", color = Color.Red, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ElevatedCard(onClick = { tvViewModel.loadChannels(forceRefresh = true) }) {
-                        Row(modifier = Modifier.padding(16.dp)) {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudOff,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(64.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Unable to Load Channels",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Server not responding or no data received.\n\nTroubleshooting steps:\n• Check server status\n• Verify your DNS and internet settings\n• Click retry below to attempt reconnection",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.widthIn(max = 360.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    ElevatedCard(
+                        onClick = { tvViewModel.loadChannels(forceRefresh = true) },
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry connection"
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Retry")
+                            Text(
+                                text = "Retry Connection",
+                                style = MaterialTheme.typography.labelLarge
+                            )
                         }
                     }
                 }

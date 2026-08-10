@@ -70,11 +70,45 @@ fun Favorites_Layout(
             )
 
             if (favoriteChannels.isEmpty()) {
-                Text(
-                    text = "No favorite channels yet. Long press a channel to add it!",
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(72.dp)
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        
+                        Text(
+                            text = "No favorite channels yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        
+                        Text(
+                            text = "Go to the channel list and long press a channel to add it!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.widthIn(max = 320.dp)
+                        )
+                    }
+                }
             } else {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val columnCount = maxOf(1, (maxWidth.value / 116f).toInt())
