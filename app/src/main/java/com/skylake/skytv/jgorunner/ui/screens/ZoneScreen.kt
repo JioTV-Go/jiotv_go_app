@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.mediarouter.app.MediaRouteButton
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.google.android.gms.cast.framework.CastContext
@@ -73,6 +74,7 @@ import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
 import com.skylake.skytv.jgorunner.ui.tvhome.Recent_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
 import com.skylake.skytv.jgorunner.ui.tvhome.SearchTabLayout
+import com.skylake.skytv.jgorunner.ui.tvhome.TvViewModel
 import com.skylake.skytv.jgorunner.utils.HandleTvBackKey
 import com.skylake.skytv.jgorunner.utils.RememberBackPressManager
 import kotlinx.coroutines.delay
@@ -89,6 +91,8 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     var showModeDialog by remember { mutableStateOf(false) }
 
     var reloadChannelsTrigger by remember { mutableIntStateOf(0) }
+
+    val tvViewModel: TvViewModel = viewModel()
 
 
     val tabs = listOf(
@@ -333,7 +337,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     // Tab Content
                     when (selectedTabIndex) {
                         0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
-                        1 -> Recent_Layout(context)
+                        1 -> Recent_Layout(context, viewModel = tvViewModel, basefinURL = tvViewModel.basefinURL)
                         2 -> SearchTabLayout(context, tabFocusRequester)
                     }
                 }

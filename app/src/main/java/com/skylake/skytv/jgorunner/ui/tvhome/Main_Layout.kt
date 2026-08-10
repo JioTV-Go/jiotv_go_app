@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.google.gson.Gson
@@ -59,6 +60,7 @@ import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.activities.ChannelInfo
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
+import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
 import com.skylake.skytv.jgorunner.utils.withQuality
 import kotlinx.coroutines.delay
@@ -84,6 +86,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     var epgError by remember { mutableStateOf(false) }
     var showLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val tvViewModel: TvViewModel = viewModel()
 
     remember { FocusRequester() }
     val categoryMap = mapOf(
@@ -277,7 +280,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         } else {
             var attempts = 0
             var success = false
-            while (attempts < 2 && !success) {
+            while (attempts < 3 && !success) {
                 attempts++
                 try {
                     val response = ChannelUtils.fetchChannels("$basefinURL/channels")
@@ -324,7 +327,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     // ignore, retry
                 }
                 if (!success) {
-                    delay(300)
+                    delay(1000)
                 }
             }
             fetched = true
@@ -674,11 +677,57 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         }
 
         ChannelGridMain(
-            context = context,
             filteredChannels = filteredChannels.value,
-            selectedChannelSetter = { selectedChannel = it },
-            localPORT = localPORT,
-            preferenceManager = preferenceManager
+            basefinURL = basefinURL,
+            onSelectedChannelChanged = { selectedChannel = it },
+            onChannelClick = { channel, index ->
+                val intent = Intent(context, ExoPlayJet::class.java).apply {
+                    putExtra("video_url", channel.channel_url)
+                    putExtra("zone", "TV")
+
+                    val allChannelsData = ArrayList(filteredChannels.value.map { ch ->
+                        ChannelInfo(
+                            withQuality(context, ch.channel_url),
+                            "$basefinURL/jtvimage/${ch.logoUrl}",
+                            ch.channel_name
+                        )
+                    })
+                    putParcelableArrayListExtra("channel_list_data", allChannelsData)
+                    putExtra("current_channel_index", index)
+                    putExtra("logo_url", "$basefinURL/jtvimage/${channel.logoUrl}")
+                    putExtra("ch_name", channel.channel_name)
+
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+
+                tvViewModel.saveToRecents(channel)
+            },
+            onChannelLongClick = { channel ->
+                if (PlayerCommandBus.isInPipMode) {
+                    PlayerCommandBus.requestSwitch(url = channel.channel_url)
+                    tvViewModel.saveToRecents(channel)
+                } else {
+                    val intent = Intent(context, ExoPlayJet::class.java).apply {
+                        putExtra("video_url", channel.channel_url)
+                        putExtra("zone", "TV")
+                        val allChannelsData = ArrayList(filteredChannels.value.map { ch ->
+                            ChannelInfo(
+                                withQuality(context, ch.channel_url),
+                                "$basefinURL/jtvimage/${ch.logoUrl}",
+                                ch.channel_name
+                            )
+                        })
+                        putParcelableArrayListExtra("channel_list_data", allChannelsData)
+                        putExtra("current_channel_index", filteredChannels.value.indexOf(channel))
+
+                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                }
+            }
         )
 
 
