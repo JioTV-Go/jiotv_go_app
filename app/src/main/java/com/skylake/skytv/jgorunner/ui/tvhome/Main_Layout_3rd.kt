@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +81,9 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
 
     var showDialog by remember { mutableStateOf(false) }
     val tvViewModel: TvViewModel = viewModel()
+    val favoriteChannels by tvViewModel.favoriteChannels.collectAsState()
+    val favoriteUrls = remember(favoriteChannels) { favoriteChannels.map { it.channel_url }.toSet() }
+
 
     var selectedCategories2 by remember {
         mutableStateOf(preferenceManager.myPrefs.lastSelectedCategoriesExp?.let {
@@ -354,19 +358,17 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                 } else {
                     // Empty
                 }
+
                 ChannelGridTV(
                     channels = filteredChannels,
+                    favoriteUrls = favoriteUrls,
                     onSelectedChannelChanged = { channel -> selectedChannel = channel },
                     onChannelClick = { channel, index ->
-                        if (CastManager.isConnecting.value) {
-                            Log.d("Cast", "Still connecting, ignoring click")
-                            return@ChannelGridTV
-                        }
+                        if (CastManager.isConnecting.value) return@ChannelGridTV
 
                         val channelInfoList = ArrayList(filteredChannels.map {
                             ChannelInfo(it.url, it.logo ?: "", it.name)
                         })
-
                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                             putParcelableArrayListExtra("channel_list_data", channelInfoList)
                             putExtra("current_channel_index", index)
@@ -374,29 +376,13 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                             if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         context.startActivity(intent)
-
                         tvViewModel.saveM3UToRecents(channel)
                     },
                     onChannelLongClick = { channel ->
-                        if (PlayerCommandBus.isInPipMode) {
-                            Log.d("ChannelGridTV", "Switch in PiP (long-press): ${channel.name}")
-                            PlayerCommandBus.requestSwitch(url = channel.url)
-                        } else {
-                            val channelInfoList = ArrayList(filteredChannels.map {
-                                ChannelInfo(it.url, it.logo ?: "", it.name)
-                            })
-                            val currentIndex = filteredChannels.indexOf(channel)
-                            val intent = Intent(context, ExoPlayJet::class.java).apply {
-                                putParcelableArrayListExtra("channel_list_data", channelInfoList)
-                                putExtra("current_channel_index", currentIndex)
-                                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                                if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        }
+                        tvViewModel.toggleFavoriteM3U(channel)
+                        Toast.makeText(context, "${channel.name} favorites updated", Toast.LENGTH_SHORT).show()
                     }
                 )
-
             }
         }
     }

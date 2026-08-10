@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +31,7 @@ import com.skylake.skytv.jgorunner.services.CastManager
 @Composable
 fun ChannelGridTV(
     channels: List<M3UChannelExp>,
+    favoriteUrls: Set<String>,
     onSelectedChannelChanged: (M3UChannelExp) -> Unit,
     onChannelClick: (M3UChannelExp, Int) -> Unit,
     onChannelLongClick: (M3UChannelExp) -> Unit
@@ -47,6 +50,7 @@ fun ChannelGridTV(
             items(channels.size, key = { index -> channels[index].url }) { index ->
                 val channel = channels[index]
                 var isFocused by remember { mutableStateOf(false) }
+                val isFavorite = favoriteUrls.contains(channel.url)
 
                 Card(
                     modifier = Modifier
@@ -67,19 +71,34 @@ fun ChannelGridTV(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    GlideImage(
-                        model = channel.logo,
-                        contentDescription = "${channel.name} logo",
-                        modifier = Modifier.fillMaxWidth().height(80.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Text(
-                        text = channel.name,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(8.dp)
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column {
+                            GlideImage(
+                                model = channel.logo,
+                                contentDescription = "${channel.name} logo",
+                                modifier = Modifier.fillMaxWidth().height(80.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Text(
+                                text = channel.name,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        if (isFavorite) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Favorite",
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -91,6 +110,7 @@ fun ChannelGridTV(
 @Composable
 fun ChannelGridMain(
     filteredChannels: List<Channel>,
+    favoriteIds: Set<String>,
     basefinURL: String,
     onSelectedChannelChanged: (Channel) -> Unit,
     onChannelClick: (Channel, Int) -> Unit,
@@ -108,6 +128,7 @@ fun ChannelGridMain(
             items(filteredChannels.size, key = { index -> filteredChannels[index].channel_id }) { index ->
                 val channel = filteredChannels[index]
                 var isFocused by remember { mutableStateOf(false) }
+                val isFavorite = favoriteIds.contains(channel.channel_id)
 
                 Card(
                     modifier = Modifier
@@ -127,17 +148,32 @@ fun ChannelGridMain(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    GlideImage(
-                        model = "$basefinURL/jtvimage/${channel.logoUrl}",
-                        contentDescription = channel.channel_name,
-                        modifier = Modifier.fillMaxWidth().height(80.dp),
-                        contentScale = ContentScale.Fit
-                    )
-                    Text(
-                        text = channel.channel_name,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(8.dp)
-                    )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column {
+                            GlideImage(
+                                model = "$basefinURL/jtvimage/${channel.logoUrl}",
+                                contentDescription = channel.channel_name,
+                                modifier = Modifier.fillMaxWidth().height(80.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Text(
+                                text = channel.channel_name,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        if (isFavorite) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Favorite",
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

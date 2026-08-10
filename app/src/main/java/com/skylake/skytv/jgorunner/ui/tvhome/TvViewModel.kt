@@ -1,6 +1,7 @@
 package com.skylake.skytv.jgorunner.ui.tvhome
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,21 +13,26 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.core.content.edit
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val preferenceManager = SkySharedPref.getInstance(application)
+    private val appPrefs = application.getSharedPreferences("sky_jtv_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
 
     val localPort = preferenceManager.myPrefs.jtvGoServerPort
     val basefinURL = "http://localhost:$localPort"
 
     private val _allChannels = MutableStateFlow<List<Channel>>(emptyList())
+
     private val _filteredChannels = MutableStateFlow<List<Channel>>(emptyList())
     val filteredChannels: StateFlow<List<Channel>> = _filteredChannels.asStateFlow()
 
     private val _recentChannels = MutableStateFlow<List<Channel>>(emptyList())
     val recentChannels: StateFlow<List<Channel>> = _recentChannels.asStateFlow()
+
+    private val _favoriteChannels = MutableStateFlow<List<Channel>>(emptyList())
+    val favoriteChannels: StateFlow<List<Channel>> = _favoriteChannels.asStateFlow()
 
     private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -36,6 +42,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadRecentChannels()
+        loadFavoriteChannels()
     }
 
     fun fetchAndFilterChannels(categoryIds: Set<Int>, languageIds: List<Int>?) {
@@ -45,8 +52,6 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 val response = ChannelUtils.fetchChannels("$basefinURL/channels")
                 if (response != null) {
                     _allChannels.value = response.result
-
-
                     val filtered = ChannelUtils.filterChannels(
                         channelsResponse = response,
                         categoryIds = categoryIds.takeIf { it.isNotEmpty() }?.toList(),
@@ -87,8 +92,6 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                     currentRecents.removeAt(currentRecents.size - 1)
                 }
             }
-
-
             preferenceManager.myPrefs.recentChannels = gson.toJson(currentRecents)
             preferenceManager.savePreferences()
             _recentChannels.value = currentRecents
@@ -98,7 +101,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     fun saveM3UToRecents(channel: M3UChannelExp) {
         viewModelScope.launch(Dispatchers.IO) {
             val clickedAsChannel = Channel(
-                channel_id = extractChannelIdFromPlayUrl(channel.url).toString(),
+                channel_id = extractChannelIdFromPlayUrl(channel.url) ?: channel.url,
                 channel_url = channel.url,
                 logoUrl = channel.logo ?: "",
                 channel_name = channel.name,
@@ -110,6 +113,46 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    
+
+    fun loadFavoriteChannels() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val json = appPrefs.getString("favorites_json", "[]")
+            val type = object : TypeToken<List<Channel>>() {}.type
+            val channels: List<Channel> = gson.fromJson(json, type) ?: emptyList()
+            _favoriteChannels.value = channels
+        }
+    }
+
+    fun toggleFavorite(channel: Channel) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentFavs = _favoriteChannels.value.toMutableList()
+            val existingIndex = currentFavs.indexOfFirst { it.channel_id == channel.channel_id }
+
+            if (existingIndex != -1) {
+                currentFavs.removeAt(existingIndex) 
+            } else {
+                currentFavs.add(0, channel) 
+            }
+
+            appPrefs.edit().putString("favorites_json", gson.toJson(currentFavs)).apply()
+            _favoriteChannels.value = currentFavs
+        }
+    }
+
+    fun toggleFavoriteM3U(channel: M3UChannelExp) {
+        val clickedAsChannel = Channel(
+            channel_id = extractChannelIdFromPlayUrl(channel.url) ?: channel.url,
+            channel_url = channel.url,
+            logoUrl = channel.logo ?: "",
+            channel_name = channel.name,
+            channelCategoryId = 0,
+            channelLanguageId = 0,
+            isHD = true,
+        )
+        toggleFavorite(clickedAsChannel)
+    }
+
     fun loadEpg(channelId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -118,6 +161,21 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 _epgData.value = fetchedEpg
             } catch (e: Exception) {
                 _epgData.value = null
+            }
+        }
+    }
+
+    fun swapFavoriteChannels(fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentList = _favoriteChannels.value.toMutableList()
+
+            if (fromIndex in currentList.indices && toIndex in currentList.indices) {
+                val temp = currentList[fromIndex]
+                currentList[fromIndex] = currentList[toIndex]
+                currentList[toIndex] = temp
+                appPrefs.edit { putString("favorites_json", gson.toJson(currentList)) }
+
+                _favoriteChannels.value = currentList
             }
         }
     }

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -87,6 +89,9 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     var showLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val tvViewModel: TvViewModel = viewModel()
+    val favoriteChannels by tvViewModel.favoriteChannels.collectAsState()
+    val favoriteIds = remember(favoriteChannels) { favoriteChannels.map { it.channel_id }.toSet() }
+
 
     remember { FocusRequester() }
     val categoryMap = mapOf(
@@ -678,13 +683,13 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
 
         ChannelGridMain(
             filteredChannels = filteredChannels.value,
+            favoriteIds = favoriteIds,
             basefinURL = basefinURL,
             onSelectedChannelChanged = { selectedChannel = it },
             onChannelClick = { channel, index ->
                 val intent = Intent(context, ExoPlayJet::class.java).apply {
                     putExtra("video_url", channel.channel_url)
                     putExtra("zone", "TV")
-
                     val allChannelsData = ArrayList(filteredChannels.value.map { ch ->
                         ChannelInfo(
                             withQuality(context, ch.channel_url),
@@ -696,37 +701,15 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     putExtra("current_channel_index", index)
                     putExtra("logo_url", "$basefinURL/jtvimage/${channel.logoUrl}")
                     putExtra("ch_name", channel.channel_name)
-
                     addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
-
                 tvViewModel.saveToRecents(channel)
             },
             onChannelLongClick = { channel ->
-                if (PlayerCommandBus.isInPipMode) {
-                    PlayerCommandBus.requestSwitch(url = channel.channel_url)
-                    tvViewModel.saveToRecents(channel)
-                } else {
-                    val intent = Intent(context, ExoPlayJet::class.java).apply {
-                        putExtra("video_url", channel.channel_url)
-                        putExtra("zone", "TV")
-                        val allChannelsData = ArrayList(filteredChannels.value.map { ch ->
-                            ChannelInfo(
-                                withQuality(context, ch.channel_url),
-                                "$basefinURL/jtvimage/${ch.logoUrl}",
-                                ch.channel_name
-                            )
-                        })
-                        putParcelableArrayListExtra("channel_list_data", allChannelsData)
-                        putExtra("current_channel_index", filteredChannels.value.indexOf(channel))
-
-                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                }
+                tvViewModel.toggleFavorite(channel)
+                Toast.makeText(context, "${channel.channel_name} favorites updated", Toast.LENGTH_SHORT).show()
             }
         )
 
