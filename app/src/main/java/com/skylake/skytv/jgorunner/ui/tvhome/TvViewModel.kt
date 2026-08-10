@@ -16,8 +16,9 @@ import kotlinx.coroutines.launch
 import androidx.core.content.edit
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
-    private val preferenceManager = SkySharedPref.getInstance(application)
+    val preferenceManager = SkySharedPref.getInstance(application)
     private val appPrefs = application.getSharedPreferences("sky_jtv_prefs", Context.MODE_PRIVATE)
+    private val channelCachePrefs = application.getSharedPreferences("channel_cache", Context.MODE_PRIVATE)
     private val gson = Gson()
 
     val localPort = preferenceManager.myPrefs.jtvGoServerPort
@@ -28,21 +29,101 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val _filteredChannels = MutableStateFlow<List<Channel>>(emptyList())
     val filteredChannels: StateFlow<List<Channel>> = _filteredChannels.asStateFlow()
 
-    private val _recentChannels = MutableStateFlow<List<Channel>>(emptyList())
-    val recentChannels: StateFlow<List<Channel>> = _recentChannels.asStateFlow()
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _isError = MutableStateFlow(false)
+    val isError: StateFlow<Boolean> = _isError.asStateFlow()
 
     private val _favoriteChannels = MutableStateFlow<List<Channel>>(emptyList())
     val favoriteChannels: StateFlow<List<Channel>> = _favoriteChannels.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+    private val _recentChannels = MutableStateFlow<List<Channel>>(emptyList())
+    val recentChannels: StateFlow<List<Channel>> = _recentChannels.asStateFlow()
 
     private val _epgData = MutableStateFlow<EpgProgram?>(null)
     val epgData: StateFlow<EpgProgram?> = _epgData.asStateFlow()
 
+    private val _isEpgLoading = MutableStateFlow(false)
+    val isEpgLoading: StateFlow<Boolean> = _isEpgLoading.asStateFlow()
+
+    private val _epgError = MutableStateFlow(false)
+    val epgError: StateFlow<Boolean> = _epgError.asStateFlow()
+
     init {
-        loadRecentChannels()
         loadFavoriteChannels()
+        loadRecentChannels()
+        loadChannels(forceRefresh = false)
+    }
+
+    fun loadChannels(forceRefresh: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isError.value = false
+
+            if (!forceRefresh) {
+                val cachedJson = channelCachePrefs.getString("channels_json", null)
+                if (!cachedJson.isNullOrEmpty()) {
+                    try {
+                        val cachedResponse = gson.fromJson(cachedJson, ChannelResponse::class.java)
+                        _allChannels.value = cachedResponse.result
+                        applyFilters(cachedResponse.result)
+                        _isLoading.value = false // Stop loading once cache is shown
+                    } catch (e: Exception) {
+                        channelCachePrefs.edit { remove("channels_json") }
+                    }
+                }
+            }
+
+            if (forceRefresh || _allChannels.value.isEmpty()) {
+                _isLoading.value = true
+            }
+
+            try {
+                val response = ChannelUtils.fetchChannels("$basefinURL/channels")
+                if (response != null && response.result.isNotEmpty()) {
+                    _allChannels.value = response.result
+
+                    channelCachePrefs.edit {
+                        putString("channels_json", gson.toJson(response))
+                    }
+
+                    applyFilters(response.result)
+                } else if (_allChannels.value.isEmpty()) {
+                    _isError.value = true
+                }
+            } catch (e: Exception) {
+                Log.e("TvViewModel", "Network error", e)
+                if (_allChannels.value.isEmpty()) _isError.value = true
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun applyFilters(channels: List<Channel> = _allChannels.value, newCategoryIds: Set<Int>? = null) {
+        viewModelScope.launch(Dispatchers.Default) {
+            // FIX: If newCategoryIds is provided but empty, make it null so the filter doesn't hide everything
+            val activeCategoryIds = if (newCategoryIds != null) {
+                newCategoryIds.toList().takeIf { it.isNotEmpty() }
+            } else {
+                preferenceManager.myPrefs.filterCI
+                    ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+                    ?.takeIf { it.isNotEmpty() }
+            }
+
+            val activeLanguageIds = preferenceManager.myPrefs.filterLI
+                ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+                ?.takeIf { it.isNotEmpty() }
+
+            val tempResponse = ChannelResponse(result = channels)
+            val filtered = ChannelUtils.filterChannels(
+                tempResponse,
+                categoryIds = activeCategoryIds,
+                languageIds = activeLanguageIds
+            )
+
+            _filteredChannels.value = filtered
+        }
     }
 
     fun fetchAndFilterChannels(categoryIds: Set<Int>, languageIds: List<Int>?) {
@@ -153,14 +234,31 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         toggleFavorite(clickedAsChannel)
     }
 
-    fun loadEpg(channelId: String) {
+    fun loadEpg(channelId: String?) {
+        if (channelId == null) {
+            _epgData.value = null
+            _epgError.value = false
+            _isEpgLoading.value = false
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
+            _isEpgLoading.value = true
+            _epgError.value = false
             try {
                 val epgURL = "$basefinURL/epg/$channelId/0"
                 val fetchedEpg = ChannelUtils.fetchEpg(epgURL)
-                _epgData.value = fetchedEpg
+                if (fetchedEpg != null) {
+                    _epgData.value = fetchedEpg
+                } else {
+                    _epgData.value = null
+                    _epgError.value = true
+                }
             } catch (e: Exception) {
                 _epgData.value = null
+                _epgError.value = true
+            } finally {
+                _isEpgLoading.value = false
             }
         }
     }

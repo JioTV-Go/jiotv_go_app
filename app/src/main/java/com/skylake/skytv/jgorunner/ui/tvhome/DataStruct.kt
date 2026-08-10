@@ -1,49 +1,78 @@
 package com.skylake.skytv.jgorunner.ui.tvhome
 
 import androidx.annotation.Keep
+import com.google.gson.annotations.SerializedName
 
 @Keep
 data class ChannelResponse(
-    val code: Int,
-    val message: String,
-    val result: List<Channel>
+    @SerializedName("code")
+    val code: Int = -1,
+    @SerializedName("message")
+    val message: String = "",
+    @SerializedName("result")
+    val result: List<Channel> = emptyList()
 )
 
 @Keep
 data class Channel(
-    val channel_id: String,
-    val channel_name: String,
-    val channel_url: String,
-    val logoUrl: String,
-    val channelCategoryId: Int,
-    val channelLanguageId: Int,
-    val isHD: Boolean
+    @SerializedName("channel_id")
+    val channel_id: String = "",
+    @SerializedName("channel_name")
+    val channel_name: String = "",
+    @SerializedName("channel_url")
+    val channel_url: String = "",
+    @SerializedName("logoUrl")
+    val logoUrl: String = "",
+    @SerializedName("channelCategoryId")
+    val channelCategoryId: Int = 0,
+    @SerializedName("channelLanguageId")
+    val channelLanguageId: Int = 0,
+    @SerializedName("isHD")
+    val isHD: Boolean = false
 )
 
 @Keep
-data class EpgResponse(val epg: List<EpgProgram>)
+data class EpgResponse(
+    @SerializedName("epg")
+    val epg: List<EpgProgram> = emptyList()
+)
 
 @Keep
 data class EpgProgram(
-    val srno: Long,
-    val showId: String,
-    val showtime: String,
-    val showname: String,
-    val description: String,
-    val duration: Int,
-    val endtime: String,
-    val channel_name: String,
-    val episodeThumbnail: String,
-    val episodePoster: String,
-    val startEpoch: Long,
-    val endEpoch: Long
+    @SerializedName("srno")
+    val srno: Long = 0L,
+    @SerializedName("showId")
+    val showId: String = "",
+    @SerializedName("showtime")
+    val showtime: String = "",
+    @SerializedName("showname")
+    val showname: String = "",
+    @SerializedName("description")
+    val description: String = "",
+    @SerializedName("duration")
+    val duration: Int = 0,
+    @SerializedName("endtime")
+    val endtime: String = "",
+    @SerializedName("channel_name")
+    val channel_name: String = "",
+    @SerializedName("episodeThumbnail")
+    val episodeThumbnail: String = "",
+    @SerializedName("episodePoster")
+    val episodePoster: String = "",
+    @SerializedName("startEpoch")
+    val startEpoch: Long = 0L,
+    @SerializedName("endEpoch")
+    val endEpoch: Long = 0L
 )
 
-// Data class for parsed channels
 @Keep
 data class M3UChannelExp(
-    val name: String,
-    val url: String,
-    val logo: String?,
-    val category: String?
+    @SerializedName("name")
+    val name: String = "",
+    @SerializedName("url")
+    val url: String = "",
+    @SerializedName("logo")
+    val logo: String? = null,
+    @SerializedName("category")
+    val category: String? = null
 )
