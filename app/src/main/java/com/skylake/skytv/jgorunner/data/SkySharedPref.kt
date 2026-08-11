@@ -201,6 +201,9 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("freeJioCatchup") var freeJioCatchup: Boolean = false,
         @SharedPrefKey("filterLI2") var filterLI2: String? = "",
         @SharedPrefKey("filterCI2") var filterCI2: String? = "",
+        @SharedPrefKey("homeIptvEnabled") var homeIptvEnabled: Boolean = true,
+        @SharedPrefKey("showRecentTab") var showRecentTab: Boolean = true,
+        @SharedPrefKey("selectedZoneTabTV") var selectedZoneTabTV: Int = 0,
 
         // Widget-specific preferences
         @SharedPrefKey("widget_show_logs") var widgetShowLogs: Boolean = false,
