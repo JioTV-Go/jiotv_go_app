@@ -1209,7 +1209,7 @@ fun initializePlayer(
         .setLoadControl(loadControl)
         .build()
 
-    var useDrmFallback = false
+    var useDrmFallback = true
     val maxRetries = 2
     retryCountRef.value = 0
 
@@ -1248,20 +1248,28 @@ fun initializePlayer(
             val currentUrl = getCurrentVideoUrl()
             val portIdentifier = ":$localPort"
 
-            
-            if (!useDrmFallback) {
-                Log.w(TAG, "Standard playback failed. Switching to DRM MPD playback. Error: ${error.message}")
-                useDrmFallback = true
-                retryCountRef.value = 0 
-                player.stop()
-                prepareAndPlay(currentPosition)
+            if (useDrmFallback) {
+                retryCountRef.value++
+                if (retryCountRef.value >= maxRetries) {
+                    Log.w(TAG, "DRM playback failed $maxRetries times. Switching to standard HLS fallback. Error: ${error.message}")
+                    useDrmFallback = false
+                    retryCountRef.value = 0
+                    player.stop()
+                    prepareAndPlay(currentPosition)
+                } else {
+                    val delayTimeMs = 1000L * retryCountRef.value
+                    Log.w(TAG, "DRM Playback error. Retrying DRM attempt ${retryCountRef.value}/$maxRetries in ${delayTimeMs}ms...")
+                    player.stop()
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        prepareAndPlay(currentPosition)
+                    }, delayTimeMs)
+                }
                 return
             }
 
-            
             if (retryCountRef.value >= maxRetries) {
                 if (currentUrl.contains(portIdentifier)) {
-                    Log.e(TAG, "DRM playback failed $maxRetries times, delegating to WebView.")
+                    Log.e(TAG, "Standard fallback playback failed $maxRetries times, delegating to WebView.")
                     val formattedUrl = currentUrl
                         .replace(".m3u8", "", ignoreCase = true)
                         .replace("/live/", "/mpd/", ignoreCase = true)
@@ -1271,11 +1279,8 @@ fun initializePlayer(
                 }
             } else {
                 retryCountRef.value++
-
-                
                 val delayTimeMs = (1000L * 2.0.pow(retryCountRef.value.toDouble())).toLong()
-                Log.w(TAG, "DRM Playback error. Retrying attempt ${retryCountRef.value}/$maxRetries in ${delayTimeMs}ms...")
-
+                Log.w(TAG, "Standard Playback error. Retrying attempt ${retryCountRef.value}/$maxRetries in ${delayTimeMs}ms...")
                 player.stop()
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     prepareAndPlay(currentPosition)

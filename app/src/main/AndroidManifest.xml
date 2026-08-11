@@ -31,6 +31,7 @@
         android:required="false" />
 
     <application
+        android:name=".JTVApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -114,6 +115,14 @@
             android:name=".activities.CastActivity"
             android:theme="@style/Theme.AppCompat.NoActionBar">  <!-- for dark mode -->
             <!--android:theme="@style/Theme.AppCompat.Light.NoActionBar"> - for light mode -->
+        </activity>
+
+        <activity
+            android:name=".activities.OmniPlayerActivity"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.JGO">
         </activity>
 
         <activity

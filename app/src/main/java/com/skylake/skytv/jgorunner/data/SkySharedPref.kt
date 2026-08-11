@@ -184,6 +184,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("startTvAutomatically") var startTvAutomatically: Boolean = false,
         @SharedPrefKey("startTvAutoDelay") var startTvAutoDelay: Boolean = false,
         @SharedPrefKey("startTvAutoDelayTime") var startTvAutoDelayTime: Int = 2,
+        @SharedPrefKey("freeOnly") var freeOnly: Boolean = true,
         @SharedPrefKey("currChannelName") var currChannelName: String? = "",
         @SharedPrefKey("currChannelLogo") var currChannelLogo: String? = "",
         @SharedPrefKey("currChannelUrl") var currChannelUrl: String? = "",
@@ -207,6 +208,8 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("cachedReleaseUrl") var cachedReleaseUrl: String? = null,
         @SharedPrefKey("cachedReleaseSize") var cachedReleaseSize: Long = 0L,
 
+        // Omni UI preferences
+        @SharedPrefKey("omni_favorites_json") var omniFavoritesJson: String? = "[]",
 
         )
 

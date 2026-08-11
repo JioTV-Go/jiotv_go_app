@@ -66,6 +66,7 @@ import com.skylake.skytv.jgorunner.ui.screens.HomeScreen
 import com.skylake.skytv.jgorunner.ui.screens.InfoScreen
 import com.skylake.skytv.jgorunner.ui.screens.LoginScreen
 import com.skylake.skytv.jgorunner.ui.screens.LoginScreenPop
+import com.skylake.skytv.jgorunner.ui.screens.OmniMainScreen
 import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
@@ -154,7 +155,8 @@ class MainActivity : FragmentActivity() {
             preferenceManager.savePreferences()
         }
 
-        if (preferenceManager.myPrefs.iptvLaunchCountdown == 0) {
+        if (preferenceManager.myPrefs.setupPending) {
+            preferenceManager.myPrefs.setupPending = false
             preferenceManager.myPrefs.iptvLaunchCountdown = 4
             preferenceManager.myPrefs.enableAutoUpdate = true
             preferenceManager.myPrefs.loginChk = true
@@ -307,6 +309,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        com.skylake.skytv.jgorunner.utils.LogCollector.init(applicationContext)
         enableEdgeToEdge()
         requestNotificationPermissions()
         preferenceManager = SkySharedPref.getInstance(this)
@@ -478,6 +481,8 @@ class MainActivity : FragmentActivity() {
                             "Extra" -> ExtraScreen(
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
+
+                            "Omni" -> OmniMainScreen(context = this@MainActivity, onNavigate = { title -> currentScreen = title })
 
                             "Runner" -> RunnerScreen(context = this@MainActivity)
                             "Login" -> LoginScreen(context = this@MainActivity)
