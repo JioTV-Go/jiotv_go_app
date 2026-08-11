@@ -485,8 +485,13 @@ private fun OmniTvGrid(
     val base = "http://localhost:$localPORT"
     val isDark = MaterialTheme.colorScheme.background.red < 0.5f
     val borderColor = if (isDark) Color(0xFF00BCD4) else Color(0xFFFFD700)
-    LazyVerticalGrid(GridCells.Adaptive(140.dp), Modifier.fillMaxSize(),
-        PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(140.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         items(channels) { ch ->
             var focused by remember { mutableStateOf(false) }
             Card(Modifier.height(160.dp)
@@ -530,7 +535,7 @@ private fun OmniTvGrid(
                 colors = CardDefaults.cardColors(MaterialTheme.colorScheme.primaryContainer)) {
                 val img = if (ch.logoUrl.startsWith("http")) ch.logoUrl else "$base/jtvimage/${ch.logoUrl}"
                 GlideImage(img, ch.channel_name, Modifier.fillMaxWidth().height(90.dp), contentScale = ContentScale.Fit)
-                Text(ch.channel_name, fontSize = 10.sp, Modifier.padding(8.dp))
+                Text(text = ch.channel_name, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
             }
         }
     }
@@ -586,18 +591,26 @@ private fun OmniCatchupOverlay(ch: Channel, localPORT: Int, onClose: () -> Unit,
                     val cal = todayCal.clone() as Calendar; cal.add(Calendar.DAY_OF_YEAR, offset)
                     val lbl = if (offset == 0) "Today" else if (offset == -1) "Yesterday" else fmt.format(cal.time)
                     var f by remember { mutableStateOf(false) }
-                    FilterChip(offset == dayOffset, { dayOffset = offset }, { Text(lbl, color = if (offset == dayOffset) Color.Black else Color.White) },
-                        Modifier.onFocusChanged { f = it.isFocused }.border(2.dp, if (f) Color(0xFF00E5FF) else Color.Transparent, RoundedCornerShape(8.dp)),
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF00E5FF), containerColor = Color(0xFF262626)))
+                    FilterChip(
+                        selected = offset == dayOffset,
+                        onClick = { dayOffset = offset },
+                        label = { Text(text = lbl, color = if (offset == dayOffset) Color.Black else Color.White) },
+                        modifier = Modifier.onFocusChanged { f = it.isFocused }.border(2.dp, if (f) Color(0xFF00E5FF) else Color.Transparent, RoundedCornerShape(8.dp)),
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF00E5FF), containerColor = Color(0xFF262626))
+                    )
                 }
             }
             when {
                 loading -> Box(Modifier.fillMaxSize().weight(1f), Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00E5FF)) }
-                errMsg != null -> Box(Modifier.fillMaxSize().weight(1f), Alignment.Center) { Text(errMsg!!, color = Color.Red) }
-                epgList.isEmpty() -> Box(Modifier.fillMaxSize().weight(1f), Alignment.Center) { Text("No shows available", color = Color.Gray) }
-                else -> LazyVerticalGrid(GridCells.Adaptive(if (isTv) 320.dp else 260.dp),
-                    Modifier.fillMaxSize().weight(1f), PaddingValues(top = 8.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                errMsg != null -> Box(Modifier.fillMaxSize().weight(1f), Alignment.Center) { Text(text = errMsg!!, color = Color.Red) }
+                epgList.isEmpty() -> Box(Modifier.fillMaxSize().weight(1f), Alignment.Center) { Text(text = "No shows available", color = Color.Gray) }
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(if (isTv) 320.dp else 260.dp),
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     itemsIndexed(epgList) { _, prog ->
                         val now2 = System.currentTimeMillis()
                         val isLive = now2 >= prog.startEpoch && now2 <= prog.endEpoch
@@ -631,7 +644,7 @@ private fun OmniCatchupTile(prog: EpgProgram, isLive: Boolean, localPORT: Int, o
             Box(Modifier.width(110.dp).aspectRatio(1.5f).clip(RoundedCornerShape(8.dp)).background(Color.DarkGray)) {
                 GlideImage("http://localhost:$localPORT/jtvposter/${prog.episodePoster}", null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 if (isLive) Box(Modifier.align(Alignment.TopStart).background(Color.Red, RoundedCornerShape(bottomEnd = 4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                    Text("LIVE", Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "LIVE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.width(12.dp))
