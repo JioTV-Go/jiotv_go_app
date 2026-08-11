@@ -205,3 +205,28 @@ private fun CastingOverlay() {
         }
     }
 }
+
+fun buildChannelInfoWindow(
+    context: android.content.Context,
+    channels: List<Channel>,
+    basefinURL: String,
+    centerIndex: Int,
+    maxItems: Int = 250
+): Pair<ArrayList<com.skylake.skytv.jgorunner.activities.ChannelInfo>, Int> {
+    if (channels.isEmpty()) return Pair(arrayListOf(), 0)
+    val safeCenter = centerIndex.coerceIn(0, channels.lastIndex)
+    val safeMax = maxItems.coerceAtLeast(1).coerceAtMost(channels.size)
+    val half = safeMax / 2
+    val start = (safeCenter - half).coerceIn(0, (channels.size - safeMax).coerceAtLeast(0))
+    val endExclusive = (start + safeMax).coerceAtMost(channels.size)
+    val slice = channels.subList(start, endExclusive)
+    val list = ArrayList(slice.map { ch ->
+        com.skylake.skytv.jgorunner.activities.ChannelInfo(
+            com.skylake.skytv.jgorunner.utils.withQuality(context, ch.channel_url),
+            if (ch.logoUrl.startsWith("http")) ch.logoUrl else "$basefinURL/jtvimage/${ch.logoUrl}",
+            ch.channel_name
+        )
+    })
+    val relativeIndex = safeCenter - start
+    return Pair(list, relativeIndex)
+}

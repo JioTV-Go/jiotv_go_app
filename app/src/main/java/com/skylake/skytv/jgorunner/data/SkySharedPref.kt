@@ -197,6 +197,11 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("setupPending") var setupPending: Boolean = true,
         @SharedPrefKey("enable_pip") var enablePip: Boolean = false,
 
+        // Omni TV layout prefs
+        @SharedPrefKey("freeJioCatchup") var freeJioCatchup: Boolean = false,
+        @SharedPrefKey("filterLI2") var filterLI2: String? = "",
+        @SharedPrefKey("filterCI2") var filterCI2: String? = "",
+
         // Widget-specific preferences
         @SharedPrefKey("widget_show_logs") var widgetShowLogs: Boolean = false,
         @SharedPrefKey("widget_logs") var widgetLogs: String? = "",

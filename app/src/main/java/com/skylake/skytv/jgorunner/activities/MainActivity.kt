@@ -70,6 +70,7 @@ import com.skylake.skytv.jgorunner.ui.screens.OmniMainScreen
 import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
+import com.skylake.skytv.jgorunner.ui.tvhome.OmniTvLayout
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 import com.skylake.skytv.jgorunner.services.CastManager
 import kotlinx.coroutines.CoroutineScope
@@ -432,6 +433,9 @@ class MainActivity : FragmentActivity() {
 //                                        Intent(this@MainActivity, CastActivity::class.java)
 //                                    startActivity(intent)
                                 },
+                                onOmniTvButtonClick = {
+                                    currentScreen = "OmniTv"
+                                },
                                 onExitButtonClick = {
                                     stopBinary(
                                         context = this@MainActivity,
@@ -490,6 +494,15 @@ class MainActivity : FragmentActivity() {
                             "Zone" -> ZoneScreen(
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
+                            "OmniTv" -> {
+                                androidx.activity.compose.BackHandler {
+                                    currentScreen = "Home"
+                                }
+                                var reloadTrigger by remember { mutableIntStateOf(0) }
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    OmniTvLayout(context = this@MainActivity, reloadTrigger = reloadTrigger)
+                                }
+                            }
                         }
 
                         // Show the redirect popup
