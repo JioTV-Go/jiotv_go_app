@@ -154,7 +154,7 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                     "channel_list_data",
                     ArrayList(
                         filteredChannels.map { ch ->
-                            ChannelInfo(ch.url, ch.logo ?: "", ch.name)
+                            ChannelInfo(ch.url, "", ch.logo ?: "", ch.name)
                         }
                     )
                 )
@@ -367,7 +367,7 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                         if (CastManager.isConnecting.value) return@ChannelGridTV
 
                         val channelInfoList = ArrayList(filteredChannels.map {
-                            ChannelInfo(it.url, it.logo ?: "", it.name)
+                            ChannelInfo(it.url, "",it.logo ?: "", it.name)
                         })
                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                             putParcelableArrayListExtra("channel_list_data", channelInfoList)

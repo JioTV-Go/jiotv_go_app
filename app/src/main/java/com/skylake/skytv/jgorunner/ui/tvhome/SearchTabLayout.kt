@@ -180,6 +180,7 @@ fun SearchTabLayout(
                                         Log.d("HT", channel.channel_name)
                                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                                             putExtra("video_url", channel.channel_url)
+                                            putExtra("key_url", channel.key_url)
                                         }
                                         if (context !is Activity) {
                                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -263,7 +264,7 @@ fun SearchBar(
     onDownKey: () -> Unit,
     onUPKey: () -> Unit
 ) {
-    LocalFocusManager.current
+    val focusManager = LocalFocusManager.current
     var isFocused by remember { mutableStateOf(false) }
 
     TextField(
@@ -279,17 +280,8 @@ fun SearchBar(
                 isFocused = focusState.isFocused
             }
             .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp) {
+               if (event.type == KeyEventType.KeyUp) {
                     when (event.key) {
-                        Key.Back -> {
-                            if (isFocused) {
-                                onUPKey()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-
                         Key.DirectionDown -> {
                             if (isFocused) {
                                 onDownKey()

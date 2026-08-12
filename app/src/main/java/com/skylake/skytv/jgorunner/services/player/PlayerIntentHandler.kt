@@ -8,6 +8,7 @@ import com.skylake.skytv.jgorunner.activities.ChannelInfo
 @Keep
 data class IntentParseResult(
     val videoUrl: String?,
+    val keyUrl: String?,
     val logoUrl: String?,
     val channelName: String?,
     val channelList: ArrayList<ChannelInfo>?,
@@ -16,13 +17,14 @@ data class IntentParseResult(
 )
 
 object PlayerIntentHandler {
-    private const val DEFAULT_VIDEO = "http://localhost:5001/live/143.m3u8"
+    private const val DEFAULT_VIDEO = "http://localhost:5001/live/mpd/143"
+    private const val DEFAULT_KEY = "http://localhost:5001/live/key/143"
     private const val DEFAULT_LOGO = "https://www.sonypicturesnetworks.com/images/logos/SET%20LOGO.png"
     private const val DEFAULT_NAME = "HANA4k"
 
     fun parse(intent: Intent?): IntentParseResult {
         if (intent == null) {
-            return IntentParseResult(DEFAULT_VIDEO, DEFAULT_LOGO, DEFAULT_NAME, null, -1, "0x0")
+            return IntentParseResult(DEFAULT_VIDEO, DEFAULT_KEY,DEFAULT_LOGO, DEFAULT_NAME, null, -1, "0x0")
         }
 
         val channelList: ArrayList<ChannelInfo>? =
@@ -35,6 +37,7 @@ object PlayerIntentHandler {
             val cur = channelList[currentChannelIndex]
             return IntentParseResult(
                 videoUrl = cur.videoUrl ?: DEFAULT_VIDEO,
+                keyUrl = cur.keyUrl ?: DEFAULT_KEY,
                 logoUrl = cur.logoUrl ?: DEFAULT_LOGO,
                 channelName = cur.channelName ?: DEFAULT_NAME,
                 channelList = channelList,
@@ -44,11 +47,13 @@ object PlayerIntentHandler {
         }
 
         val videoUrl = intent.getStringExtra("video_url") ?: DEFAULT_VIDEO
+        val keyUrl = intent.getStringExtra("key_url") ?: DEFAULT_KEY
         val logoUrl = intent.getStringExtra("logo_url") ?: DEFAULT_LOGO
         val chName = intent.getStringExtra("ch_name") ?: DEFAULT_NAME
 
         return IntentParseResult(
             videoUrl = videoUrl,
+            keyUrl = keyUrl,
             logoUrl = logoUrl,
             channelName = chName,
             channelList = channelList,
