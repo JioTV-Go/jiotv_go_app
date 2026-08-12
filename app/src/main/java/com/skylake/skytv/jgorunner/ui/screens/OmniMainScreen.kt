@@ -42,7 +42,20 @@ import com.skylake.skytv.jgorunner.data.OmniFavoritesStore
 import com.skylake.skytv.jgorunner.data.OmniRepository
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
+import com.skylake.skytv.jgorunner.ui.tvhome.EpgProgram
+import com.skylake.skytv.jgorunner.ui.tvhome.EpgResponse
+import com.skylake.skytv.jgorunner.activities.WebPlayerActivity
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.zIndex
+import android.util.Log
+import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 @Composable
 fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
@@ -59,6 +72,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var selectedCategory by remember { mutableStateOf<String?>("All") }
     var favoriteUpdateTick by remember { mutableIntStateOf(0) }
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
+    var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
+    var catchupChannelTarget by remember { mutableStateOf<OmniChannel?>(null) }
 
     val categories = remember(channels, favoriteUpdateTick) {
         val list = mutableListOf("All")
@@ -212,6 +227,47 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 )
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
+            var catchupFocused by remember { mutableStateOf(false) }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .onFocusChanged { catchupFocused = it.isFocused }
+                    .border(
+                        2.dp,
+                        if (catchupFocused) focusBorderColor else Color.Transparent,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clickable {
+                        freeJioCatchup = !freeJioCatchup
+                        prefManager.myPrefs.freeJioCatchup = freeJioCatchup
+                        prefManager.savePreferences()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Checkbox(
+                    checked = freeJioCatchup,
+                    onCheckedChange = { checked ->
+                        freeJioCatchup = checked
+                        prefManager.myPrefs.freeJioCatchup = checked
+                        prefManager.savePreferences()
+                    },
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Catchup",
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Categories List
@@ -330,11 +386,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     .focusable()
                                     .onFocusChanged { isFocused = it.isFocused }
                                     .clickable {
-                                        val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                                            putExtra("channel_list", ArrayList(filtered))
-                                            putExtra("channel_index", index)
+                                        if (freeJioCatchup) {
+                                            catchupChannelTarget = ch
+                                        } else {
+                                            val intent = Intent(context, OmniPlayerActivity::class.java).apply {
+                                                putExtra("channel_list", ArrayList(filtered))
+                                                putExtra("channel_index", index)
+                                            }
+                                            context.startActivity(intent)
                                         }
-                                        context.startActivity(intent)
                                     }
                                     .border(
                                         width = if (isFocused) 2.dp else 1.dp,
@@ -418,6 +478,399 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    catchupChannelTarget?.let { target ->
+        CatchupOverlay(
+            channel = target,
+            localPORT = prefManager.myPrefs.jtvGoServerPort,
+            onClose = { catchupChannelTarget = null },
+            context = context,
+            preferenceManager = prefManager,
+            onPlayChannel = { resolvedChannel ->
+                val intent = Intent(context, OmniPlayerActivity::class.java).apply {
+                    putExtra("channel_list", arrayListOf(resolvedChannel))
+                    putExtra("channel_index", 0)
+                }
+                context.startActivity(intent)
+            },
+            filteredChannels = filtered
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CatchupOverlay(
+    channel: OmniChannel,
+    localPORT: Int,
+    onClose: () -> Unit,
+    context: Context,
+    preferenceManager: SkySharedPref,
+    onPlayChannel: (OmniChannel) -> Unit,
+    filteredChannels: List<OmniChannel>
+) {
+    var selectedOffset by remember { mutableIntStateOf(0) }
+    var loading by remember { mutableStateOf(true) }
+    var epgList by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var resolvingProgramSrno by remember { mutableStateOf<Long?>(null) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    BackHandler { onClose() }
+
+    // Fetch EPG whenever the selected day offset changes
+    LaunchedEffect(selectedOffset, channel.id) {
+        loading = true
+        errorMsg = null
+        try {
+            withContext(Dispatchers.IO) {
+                val channelId = channel.id ?: ""
+                val urlString = "http://localhost:$localPORT/epg/$channelId/$selectedOffset"
+                val connection = java.net.URL(urlString).openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                val json = connection.inputStream.bufferedReader().use { it.readText() }
+                val response = Gson().fromJson(json, EpgResponse::class.java)
+                
+                val currentTime = System.currentTimeMillis()
+                
+                // Parse program epochs (make sure they are in milliseconds)
+                val parsedEpg = response.epg.map { program ->
+                    val start = if (program.startEpoch < 100000000000L) program.startEpoch * 1000 else program.startEpoch
+                    val end = if (program.endEpoch < 100000000000L) program.endEpoch * 1000 else program.endEpoch
+                    program.copy(startEpoch = start, endEpoch = end)
+                }
+
+                // Filter out future shows (only keep shows that have already started or are currently live)
+                val pastAndLiveShows = parsedEpg.filter { it.startEpoch <= currentTime }
+
+                // Reorder: if offset is 0 (Today), find the live one and place it first
+                val finalEpg = if (selectedOffset == 0) {
+                    val liveShow = pastAndLiveShows.find { currentTime >= it.startEpoch && currentTime <= it.endEpoch }
+                    if (liveShow != null) {
+                        val otherShows = pastAndLiveShows.filter { it.srno != liveShow.srno }.reversed()
+                        listOf(liveShow) + otherShows
+                    } else {
+                        pastAndLiveShows.reversed()
+                    }
+                } else {
+                    pastAndLiveShows.reversed()
+                }
+
+                withContext(Dispatchers.Main) {
+                    epgList = finalEpg
+                    loading = false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("CatchupOverlay", "Error fetching catchup EPG", e)
+            withContext(Dispatchers.Main) {
+                errorMsg = "Failed to load catchup guide"
+                loading = false
+            }
+        }
+    }
+
+    // Prepare day selectors (Today = 0, Yesterday = -1, ..., 7 days ago = -7)
+    val dayOffsets = (0 downTo -7).toList()
+    val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+    val todayCal = Calendar.getInstance()
+
+    val isTv = LocalConfiguration.current.screenWidthDp >= 600
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121212)) // Sleek dark mode background
+            .padding(16.dp)
+            .zIndex(100f) // Draw on top of all Omni views
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header Row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                AsyncImage(
+                    model = channel.logo ?: "",
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "${channel.name ?: ""} - Catchup Guide",
+                    style = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                )
+            }
+
+            // Horizontal Day Selector (Chips)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(dayOffsets) { offset ->
+                    val cal = todayCal.clone() as Calendar
+                    cal.add(Calendar.DAY_OF_YEAR, offset)
+                    val label = if (offset == 0) "Today" else if (offset == -1) "Yesterday" else dateFormat.format(cal.time)
+                    val isSelected = offset == selectedOffset
+                    
+                    var isFocused by remember { mutableStateOf(false) }
+                    val chipBorderColor = Color(0xFF00E5FF)
+
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedOffset = offset },
+                        label = { Text(label, color = if (isSelected) Color.Black else Color.White) },
+                        modifier = Modifier
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .border(2.dp, if (isFocused) chipBorderColor else Color.Transparent, RoundedCornerShape(8.dp)),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF00E5FF),
+                            containerColor = Color(0xFF262626)
+                        )
+                    )
+                }
+            }
+
+            // Guide Content
+            when {
+                loading -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF00E5FF))
+                }
+                errorMsg != null -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Text(errorMsg!!, color = Color.Red, fontSize = 16.sp)
+                }
+                epgList.isEmpty() -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No shows available for this day", color = Color.Gray, fontSize = 16.sp)
+                }
+                else -> {
+                    // Vertical Grid of Catchup Shows
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = if (isTv) 320.dp else 260.dp),
+                        modifier = Modifier.fillMaxSize().weight(1f),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(epgList) { index, program ->
+                            val currentTime = System.currentTimeMillis()
+                            val isLive = currentTime >= program.startEpoch && currentTime <= program.endEpoch
+                            
+                            CatchupTile(
+                                program = program,
+                                isLive = isLive,
+                                isTv = isTv,
+                                localPORT = localPORT,
+                                isResolving = (resolvingProgramSrno == program.srno),
+                                onClick = {
+                                    if (isLive) {
+                                        onPlayChannel(channel)
+                                    } else {
+                                        if (resolvingProgramSrno != null) return@CatchupTile
+                                        resolvingProgramSrno = program.srno
+                                        coroutineScope.launch {
+                                            val videoUrl = "http://localhost:$localPORT/catchup/render/${channel.id}?start=${program.startEpoch}&end=${program.endEpoch}&srno=${program.srno}"
+                                            val resolved = resolveCatchupStream(context, videoUrl)
+                                            resolvingProgramSrno = null
+                                            if (resolved != null) {
+                                                val catchupChannel = OmniChannel(
+                                                    id = channel.id,
+                                                    name = "[Catchup] ${program.showname}",
+                                                    group = channel.group,
+                                                    logo = channel.logo,
+                                                    url = resolved.playUrl,
+                                                    m3u8Url = if (!resolved.playUrl.contains(".mpd")) resolved.playUrl else null,
+                                                    mpdUrl = if (resolved.playUrl.contains(".mpd")) resolved.playUrl else null,
+                                                    licenseUrl = resolved.licenseUrl,
+                                                    headers = (channel.headers ?: emptyMap()) + mapOf("catchup_web_url" to videoUrl)
+                                                )
+                                                onPlayChannel(catchupChannel)
+                                            } else {
+                                                // Fallback to WebPlayerActivity if resolution fails
+                                                val intent = Intent(context, WebPlayerActivity::class.java).apply {
+                                                    putExtra("startup_url", videoUrl)
+                                                    putExtra("target_channel_id", channel.id ?: "")
+                                                }
+                                                context.startActivity(intent)
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+suspend fun resolveCatchupStream(context: Context, renderUrl: String): ResolvedCatchupStream? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val connection = java.net.URL(renderUrl).openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            val html = connection.inputStream.bufferedReader().use { it.readText() }
+            val cleanHtml = html.replace("\\u0026", "&").replace("\\/", "/")
+            
+            // 1. Try to find DRM parameters
+            // Example: await player.load("/render.mpd?auth=...");
+            val playUrlRegex = """player\.load\(\s*["']([^"']+)["']\s*\)""".toRegex()
+            val licenseUrlRegex = """const licenseUrl\s*=\s*["']([^"']+)["']""".toRegex()
+            
+            var playUrlMatch = playUrlRegex.find(cleanHtml)?.groupValues?.get(1)
+            var licenseUrlMatch = licenseUrlRegex.find(cleanHtml)?.groupValues?.get(1)
+            
+            // 2. If not DRM, look for HLS
+            // Example: src: "/catchup/stream/143?start=..."
+            if (playUrlMatch == null) {
+                val hlsRegex = """src:\s*["']([^"']+)["']""".toRegex()
+                playUrlMatch = hlsRegex.find(cleanHtml)?.groupValues?.get(1)
+            }
+            
+            if (playUrlMatch != null) {
+                val localBase = "http://localhost:${SkySharedPref.getInstance(context).myPrefs.jtvGoServerPort}"
+                val absolutePlayUrl = if (playUrlMatch.startsWith("/")) "$localBase$playUrlMatch" else playUrlMatch
+                val absoluteLicenseUrl = licenseUrlMatch?.let {
+                    if (it.isBlank()) null
+                    else if (it.startsWith("/")) "$localBase$it"
+                    else it
+                }
+                ResolvedCatchupStream(absolutePlayUrl, absoluteLicenseUrl)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("CatchupOverlay", "Error resolving catchup stream", e)
+            null
+        }
+    }
+}
+
+data class ResolvedCatchupStream(
+    val playUrl: String,
+    val licenseUrl: String?
+)
+
+@Composable
+fun CatchupTile(
+    program: EpgProgram,
+    isLive: Boolean,
+    isTv: Boolean,
+    localPORT: Int,
+    isResolving: Boolean,
+    onClick: () -> Unit
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val primaryColor = Color(0xFF00E5FF)
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .border(2.dp, if (focused) primaryColor else Color.Transparent, shape)
+            .clickable(enabled = !isResolving, onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (focused) Color(0xFF1F353D) else Color(0xFF1E1E1E)
+        ),
+        shape = shape
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(if (isTv) 110.dp else 90.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF2E2E2E))
+            ) {
+                if (program.episodePoster.isNotBlank()) {
+                    AsyncImage(
+                        model = "http://localhost:$localPORT/jtvposter/${program.episodePoster}",
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                }
+                if (isResolving) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = primaryColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                if (isLive) {
+                    Text(
+                        text = "LIVE",
+                        color = Color.Red,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(Color.Red.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                Text(
+                    text = program.showname,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (program.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = program.description,
+                        color = Color.LightGray,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "${program.showtime} - ${program.endtime}",
+                    color = Color.Gray,
+                    fontSize = 11.sp
+                )
             }
         }
     }

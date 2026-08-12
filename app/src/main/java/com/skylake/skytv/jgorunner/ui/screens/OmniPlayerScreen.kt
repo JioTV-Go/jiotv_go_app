@@ -92,24 +92,45 @@ fun OmniPlayerScreen(
     
     var useDrm by remember(currentIndex) { mutableStateOf(true) }
     var drmRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
+    var catchupRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
 
-    fun buildOmniMediaItem(videoUrl: String, forceDrm: Boolean): MediaItem {
-        val targetUrl = if (forceDrm) {
-            videoUrl.replace("/live/mpd/", "/live/mpd/").replace("/live/", "/live/mpd/").replace(".m3u8", ".mpd")
-        } else {
-            videoUrl.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
-        }
-        val builder = MediaItem.Builder().setUri(targetUrl)
-        if (forceDrm) {
-            val licenseUrl = targetUrl.replace("/live/mpd/", "/live/key/").replace(".mpd", "")
+    fun buildOmniMediaItem(ch: OmniChannel, forceDrm: Boolean): MediaItem {
+        val licenseUrl = ch.licenseUrl
+        val isMpd = ch.mpdUrl != null || ch.url?.contains(".mpd") == true
+        
+        val builder = MediaItem.Builder()
+        
+        if (!licenseUrl.isNullOrBlank()) {
+            builder.setUri(ch.mpdUrl ?: ch.url ?: "")
             builder.setDrmConfiguration(
                 MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
                     .setLicenseUri(licenseUrl)
+                    .apply {
+                        ch.headers?.let { setLicenseRequestHeaders(it) }
+                    }
                     .build()
             )
             builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
         } else {
-            builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+            val targetUrl = if (forceDrm) {
+                val base = ch.m3u8Url ?: ch.url ?: ""
+                base.replace("/live/mpd/", "/live/mpd/").replace("/live/", "/live/mpd/").replace(".m3u8", ".mpd")
+            } else {
+                val base = ch.m3u8Url ?: ch.url ?: ""
+                base.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
+            }
+            builder.setUri(targetUrl)
+            if (forceDrm || isMpd) {
+                val calculatedLicense = targetUrl.replace("/live/mpd/", "/live/key/").replace(".mpd", "")
+                builder.setDrmConfiguration(
+                    MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                        .setLicenseUri(calculatedLicense)
+                        .build()
+                )
+                builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+            } else {
+                builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+            }
         }
         return builder.build()
     }
@@ -123,6 +144,34 @@ fun OmniPlayerScreen(
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(OMNI_TAG, "ExoPlayer error: ${error.message}")
+                        
+                        val catchupWebUrl = activeChannel?.headers?.get("catchup_web_url")
+                        val isCatchupStream = activeChannel?.name?.contains("[Catchup]", ignoreCase = true) == true &&
+                                              !catchupWebUrl.isNullOrBlank()
+
+                        if (isCatchupStream) {
+                            catchupRetryCount++
+                            if (catchupRetryCount >= 3) {
+                                Log.w(OMNI_TAG, "Catchup native playback failed 3 times. Redirecting to WebPlayer fallback: $catchupWebUrl")
+                                try {
+                                    val intent = android.content.Intent(context, com.skylake.skytv.jgorunner.activities.WebPlayerActivity::class.java).apply {
+                                        putExtra("startup_url", catchupWebUrl)
+                                        putExtra("target_channel_id", activeChannel?.id ?: "")
+                                    }
+                                    context.startActivity(intent)
+                                    (context as? Activity)?.finish()
+                                } catch (e: Exception) {
+                                    Log.e(OMNI_TAG, "Failed to fallback to WebPlayerActivity: ${e.message}", e)
+                                }
+                                return
+                            } else {
+                                Log.d(OMNI_TAG, "Catchup failed $catchupRetryCount time(s), retrying...")
+                                prepare()
+                                play()
+                                return
+                            }
+                        }
+
                         if (useDrm) {
                             drmRetryCount++
                             if (drmRetryCount >= 2) {
@@ -173,8 +222,7 @@ fun OmniPlayerScreen(
         activeChannel = ch
         playerError = null
         try {
-            val url = ch.m3u8Url ?: ch.url ?: return@LaunchedEffect
-            val mediaItem = buildOmniMediaItem(url, forceDrm = useDrm)
+            val mediaItem = buildOmniMediaItem(ch, forceDrm = useDrm)
             exoPlayer.setMediaItem(mediaItem)
             exoPlayer.prepare()
             exoPlayer.play()

@@ -48,7 +48,8 @@ class OmniRepository(private val context: Context) {
                 group = gr?.groupValues?.get(1)
             } else if (t.startsWith("http") && name != null) {
                 url = t
-                channels.add(OmniChannel(name = name, group = group, logo = logo, url = url, m3u8Url = url, mpdUrl = null))
+                val extractedId = url.substringAfterLast("/").substringBefore(".").trim()
+                channels.add(OmniChannel(id = extractedId, name = name, group = group, logo = logo, url = url, m3u8Url = url, mpdUrl = null))
                 name = null; logo = null; group = null; url = null
             }
         }

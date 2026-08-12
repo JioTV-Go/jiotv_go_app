@@ -74,7 +74,6 @@ import com.skylake.skytv.jgorunner.ui.screens.OmniMainScreen
 import com.skylake.skytv.jgorunner.ui.screens.RunnerScreen
 import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
-import com.skylake.skytv.jgorunner.ui.tvhome.OmniTvLayout
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 import com.skylake.skytv.jgorunner.services.CastManager
 import kotlinx.coroutines.CoroutineScope
@@ -380,7 +379,7 @@ class MainActivity : FragmentActivity() {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {
-                        if (currentScreen != "Zone") {
+                        if (currentScreen != "Zone" && currentScreen != "OmniTv") {
                             BottomNavigationBar(
                                 currentScreen = currentScreen,
                                 setCurrentScreen = { currentScreen = it }
@@ -490,8 +489,6 @@ class MainActivity : FragmentActivity() {
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
 
-                            "Omni" -> OmniMainScreen(context = this@MainActivity, onNavigate = { title -> currentScreen = title })
-
                             "Runner" -> RunnerScreen(context = this@MainActivity)
                             "Login" -> LoginScreen(context = this@MainActivity)
                             "Cast" -> CastScreen(context = this@MainActivity)
@@ -499,13 +496,7 @@ class MainActivity : FragmentActivity() {
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
                             "OmniTv" -> {
-                                androidx.activity.compose.BackHandler {
-                                    currentScreen = "Home"
-                                }
-                                var reloadTrigger by remember { mutableIntStateOf(0) }
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    OmniTvLayout(context = this@MainActivity, reloadTrigger = reloadTrigger)
-                                }
+                                OmniMainScreen(context = this@MainActivity, onNavigate = { title -> currentScreen = title })
                             }
                         }
 

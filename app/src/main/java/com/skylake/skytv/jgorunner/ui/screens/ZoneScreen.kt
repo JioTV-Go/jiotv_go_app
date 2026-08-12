@@ -76,7 +76,6 @@ import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.tvhome.Favorites_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
-import com.skylake.skytv.jgorunner.ui.tvhome.OmniTvLayout
 import com.skylake.skytv.jgorunner.ui.tvhome.Recent_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.SearchTabLayout
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu

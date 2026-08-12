@@ -31,12 +31,6 @@ fun BottomNavigationBar(
             hasNews = false,
         ),
         BottomNavigationItem(
-            title = "Omni",
-            selectedIcon = Icons.Filled.LiveTv,
-            unselectedIcon = Icons.Outlined.LiveTv,
-            hasNews = false,
-        ),
-        BottomNavigationItem(
             title = "Settings",
             selectedIcon = Icons.Filled.Settings,
             unselectedIcon = Icons.Outlined.Settings,
@@ -52,9 +46,8 @@ fun BottomNavigationBar(
 
     val selectedIndex = when (currentScreen) {
         "Home" -> 0
-        "Omni" -> 1
-        "Settings", "SettingsTV" -> 2
-        "Extra" -> 3
+        "Settings", "SettingsTV" -> 1
+        "Extra" -> 2
         else -> 0
     }
 
