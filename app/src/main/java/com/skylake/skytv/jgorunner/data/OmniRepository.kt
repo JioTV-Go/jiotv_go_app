@@ -37,6 +37,8 @@ class OmniRepository(private val context: Context) {
         var group: String? = null
         var url: String? = null
 
+        val languages = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Marathi", "Gujarati", "Punjabi", "Urdu", "Odia", "Assamese")
+
         for (line in lines) {
             val t = line.trim()
             if (t.startsWith("#EXTINF")) {
@@ -49,7 +51,26 @@ class OmniRepository(private val context: Context) {
             } else if (t.startsWith("http") && name != null) {
                 url = t
                 val extractedId = url.substringAfterLast("/").substringBefore(".").trim()
-                channels.add(OmniChannel(id = extractedId, name = name, group = group, logo = logo, url = url, m3u8Url = url, mpdUrl = null))
+                
+                var lang: String? = null
+                val combinedText = "${group ?: ""} ${name ?: ""}".lowercase()
+                for (l in languages) {
+                    if (combinedText.contains(l.lowercase())) {
+                        lang = l
+                        break
+                    }
+                }
+
+                channels.add(OmniChannel(
+                    id = extractedId, 
+                    name = name, 
+                    group = group, 
+                    language = lang, 
+                    logo = logo, 
+                    url = url, 
+                    m3u8Url = url, 
+                    mpdUrl = null
+                ))
                 name = null; logo = null; group = null; url = null
             }
         }

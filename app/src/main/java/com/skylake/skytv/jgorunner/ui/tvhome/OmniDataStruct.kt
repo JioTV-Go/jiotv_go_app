@@ -9,6 +9,7 @@ import java.io.Serializable
 data class OmniChannel(
     @SerializedName("name") val name: String? = null,
     @SerializedName("group") val group: String? = null,
+    @SerializedName("language") val language: String? = null,
     @SerializedName("logo") val logo: String? = null,
     @SerializedName("url") val url: String? = null,
     @SerializedName("m3u8_url") val m3u8Url: String? = null,

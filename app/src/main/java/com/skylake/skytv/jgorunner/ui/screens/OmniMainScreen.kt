@@ -3,8 +3,14 @@ package com.skylake.skytv.jgorunner.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -40,19 +46,22 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.google.gson.Gson
 import com.skylake.skytv.jgorunner.activities.OmniPlayerActivity
 import com.skylake.skytv.jgorunner.activities.WebPlayerActivity
-
 import com.skylake.skytv.jgorunner.data.OmniRepository
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
@@ -62,16 +71,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.os.Build
+import com.skylake.skytv.jgorunner.services.BinaryService
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val prefManager = remember { SkySharedPref.getInstance(context) }
     val repository = remember { OmniRepository(context) }
     val port = prefManager.myPrefs.jtvGoServerPort
     val scope = rememberCoroutineScope()
+    val gson = remember { Gson() }
 
     var channels by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -82,39 +96,53 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchFocused by remember { mutableStateOf(false) }
 
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
-    var favoriteUpdateTick by remember { mutableIntStateOf(0) }
+    var selectedCategories by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedLanguages by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    var showCategoryDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
     var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
     var catchupChannelTarget by remember { mutableStateOf<OmniChannel?>(null) }
+
+    var showImportDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     val searchFocusRequester = remember { FocusRequester() }
     val firstChannelFocusRequester = remember { FocusRequester() }
     val firstSidebarFocusRequester = remember { FocusRequester() }
 
-    // All unique category groups from channels
-    val categories = remember(channels, favoriteUpdateTick) {
-        val list = mutableListOf<String?>("All")
-        channels.mapNotNull { it.group }.distinct().sorted().forEach { list.add(it) }
-        list
+    val hasCategories = remember(channels) {
+        channels.any { !it.group.isNullOrBlank() }
+    }
+    val hasLanguages = remember(channels) {
+        channels.any { !it.language.isNullOrBlank() }
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategory, freeOnly) {
+    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
         channels.filter { channel ->
             val matchesSearch = searchQuery.isEmpty() ||
                 channel.name?.contains(searchQuery, ignoreCase = true) == true ||
                 channel.group?.contains(searchQuery, ignoreCase = true) == true
 
-            val matchesCategory = selectedCategory == null || selectedCategory == "All" ||
-                channel.group?.equals(selectedCategory, ignoreCase = true) == true
+            val matchesCategory = selectedCategories.isEmpty() || selectedCategories.any { filter ->
+                channel.group?.contains(filter, ignoreCase = true) == true ||
+                filter.contains(channel.group.orEmpty(), ignoreCase = true)
+            }
+
+            val matchesLanguage = selectedLanguages.isEmpty() || selectedLanguages.any { filter ->
+                channel.language?.contains(filter, ignoreCase = true) == true ||
+                filter.contains(channel.language.orEmpty(), ignoreCase = true)
+            }
 
             val matchesFreeOnly = !freeOnly || channel.url?.contains("/live/") == true
 
-            matchesSearch && matchesCategory && matchesFreeOnly
+            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
         }
     }
 
-    // Load channels on first compose
+    // Load channels
     LaunchedEffect(Unit) {
         isLoading = true
         errorMessage = null
@@ -200,7 +228,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Omni TV",
+                            text = "Free Jio Settings",
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
                             fontSize = 12.sp
                         )
@@ -253,66 +281,83 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         .fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
-                    // ---- CATEGORIES ----
-                    item { OmniDrawerSectionLabel("CATEGORIES") }
-                    items(categories) { cat ->
-                        val isSelected = selectedCategory == cat || (cat == "All" && selectedCategory == null)
-                        var isFocused by remember { mutableStateOf(false) }
-                        val scale by animateFloatAsState(if (isFocused) 1.05f else 1.0f)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp, horizontal = 2.dp)
-                                .scale(scale)
-                                .onFocusChanged { isFocused = it.isFocused }
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                    else if (isSelected) MaterialTheme.colorScheme.surfaceVariant
-                                    else Color.Transparent
-                                )
-                                .border(
-                                    2.dp,
-                                    if (isFocused) MaterialTheme.colorScheme.primary
-                                    else if (isSelected) MaterialTheme.colorScheme.outline
-                                    else Color.Transparent,
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .clickable {
-                                    selectedCategory = if (cat == "All") null else cat
-                                    isSidebarVisible = false
-                                }
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                text = cat ?: "All",
-                                color = if (isFocused || isSelected) MaterialTheme.colorScheme.onBackground
-                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                    // ---- FILTERS ----
+                    item { OmniDrawerSectionLabel("FILTERS") }
+                    item {
+                        OmniSettingsActionItem("Category Filter", Icons.Default.FilterList, enabled = hasCategories) { showCategoryDialog = true }
+                    }
+                    item {
+                        OmniSettingsActionItem("Language Filter", Icons.Default.Language, enabled = hasLanguages) { showLanguageDialog = true }
+                    }
+                    item {
+                        OmniSettingsActionItem("Clear Filters", Icons.Default.FilterAltOff, enabled = true) {
+                            selectedCategories = emptySet()
+                            selectedLanguages = emptySet()
                         }
                     }
 
                     // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
                     item {
-                        var checked by remember { mutableStateOf(freeOnly) }
-                        OmniSettingsToggle("Free only", checked) {
+                        var checked by remember { mutableStateOf(prefManager.myPrefs.cloudAutoplayFirstChannel) }
+                        OmniSettingsToggle("Autoplay 1st CH", checked) {
                             checked = it
-                            freeOnly = it
-                            prefManager.myPrefs.freeOnly = it
+                            prefManager.myPrefs.cloudAutoplayFirstChannel = it
                             prefManager.savePreferences()
                         }
                     }
                     item {
-                        var checked by remember { mutableStateOf(freeJioCatchup) }
-                        OmniSettingsToggle("Catchup mode", checked) {
+                        var checked by remember { mutableStateOf(prefManager.myPrefs.cloudAutoplayLastChannel) }
+                        OmniSettingsToggle("Autoplay Last Played CH", checked) {
                             checked = it
-                            freeJioCatchup = it
-                            prefManager.myPrefs.freeJioCatchup = it
+                            prefManager.myPrefs.cloudAutoplayLastChannel = it
                             prefManager.savePreferences()
+                        }
+                    }
+                    item {
+                        var swipeChecked by remember { mutableStateOf(prefManager.myPrefs.cloudEnableSwipeGestures) }
+                        OmniSettingsToggle("Vol/Bright Gestures", swipeChecked) {
+                            swipeChecked = it
+                            prefManager.myPrefs.cloudEnableSwipeGestures = it
+                            prefManager.savePreferences()
+                        }
+                    }
+                    item {
+                        var doubleTapChecked by remember { mutableStateOf(prefManager.myPrefs.cloudEnableDoubleTapSeek) }
+                        OmniSettingsToggle("Double-tap to Seek", doubleTapChecked) {
+                            doubleTapChecked = it
+                            prefManager.myPrefs.cloudEnableDoubleTapSeek = it
+                            prefManager.savePreferences()
+                        }
+                    }
+                    item {
+                        var animChecked by remember { mutableStateOf(prefManager.myPrefs.cloudAnimationEnabled) }
+                        OmniSettingsToggle("Animations", animChecked) {
+                            animChecked = it
+                            prefManager.myPrefs.cloudAnimationEnabled = it
+                            prefManager.savePreferences()
+                        }
+                    }
+
+                    // ---- SYSTEM ----
+                    item { OmniDrawerSectionLabel("SYSTEM") }
+                    item {
+                        OmniSettingsActionItem("Reset Channel Settings", Icons.Default.RestartAlt, enabled = true) {
+                            prefManager.myPrefs.freeOnly = true
+                            prefManager.myPrefs.freeJioCatchup = false
+                            prefManager.myPrefs.cloudAutoplayFirstChannel = false
+                            prefManager.myPrefs.cloudAutoplayLastChannel = false
+                            prefManager.myPrefs.cloudEnableSwipeGestures = true
+                            prefManager.myPrefs.cloudEnableDoubleTapSeek = true
+                            prefManager.myPrefs.cloudAnimationEnabled = true
+                            prefManager.savePreferences()
+
+                            freeOnly = true
+                            freeJioCatchup = false
+                            selectedCategories = emptySet()
+                            selectedLanguages = emptySet()
+
+                            Toast.makeText(context, "Settings reset to defaults", Toast.LENGTH_SHORT).show()
                         }
                     }
                     item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -468,30 +513,59 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 }
                             }
                             Text(
-                                text = selectedCategory ?: "Omni TV",
+                                text = "Free Jio",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 8.dp)
                             )
-                            Spacer(modifier = Modifier.weight(1f))
 
-                            // Filter pills (Free / Catchup)
-                            if (freeOnly) {
-                                OmniFilterPill(label = "Free", active = true, onClick = {
-                                    freeOnly = false
-                                    prefManager.myPrefs.freeOnly = false
-                                    prefManager.savePreferences()
-                                })
-                                Spacer(modifier = Modifier.width(4.dp))
+                            // Import Icon next to Title
+                            var isImportFocused by remember { mutableStateOf(false) }
+                            IconButton(
+                                onClick = { showImportDialog = true },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .onFocusChanged { isImportFocused = it.isFocused }
+                                    .background(if (isImportFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
+                                    .border(1.dp, if (isImportFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Import Credentials",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
-                            if (freeJioCatchup) {
-                                OmniFilterPill(label = "Catchup", active = true, onClick = {
-                                    freeJioCatchup = false
-                                    prefManager.myPrefs.freeJioCatchup = false
-                                    prefManager.savePreferences()
-                                })
-                                Spacer(modifier = Modifier.width(4.dp))
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            // Export Icon next to Title
+                            var isExportFocused by remember { mutableStateOf(false) }
+                            IconButton(
+                                onClick = {
+                                    // Generate and copy JSON to clipboard
+                                    val json = getAllCredentialsAsJson(context)
+                                    val clip = ClipData.newPlainText("jtiov_credentials_json", json)
+                                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cb.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Credentials copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    showExportDialog = true
+                                },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .onFocusChanged { isExportFocused = it.isFocused }
+                                    .background(if (isExportFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
+                                    .border(1.dp, if (isExportFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileUpload,
+                                    contentDescription = "Export Credentials",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
+
+                            Spacer(modifier = Modifier.weight(1f))
 
                             var isSearchIconFocused by remember { mutableStateOf(false) }
                             IconButton(
@@ -514,6 +588,115 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
             }
 
+            // Category/Language filter pills and Free/Catchup checkboxes below the title bar
+            if (channels.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OmniFilterPill(
+                        label = if (selectedCategories.isEmpty()) "Category" else "Category (${selectedCategories.size})",
+                        active = selectedCategories.isNotEmpty(),
+                        onClick = { showCategoryDialog = true },
+                        enabled = hasCategories
+                    )
+                    OmniFilterPill(
+                        label = if (selectedLanguages.isEmpty()) "Language" else "Language (${selectedLanguages.size})",
+                        active = selectedLanguages.isNotEmpty(),
+                        onClick = { showLanguageDialog = true },
+                        enabled = hasLanguages
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Compact Free checkbox
+                    var freeFocused by remember { mutableStateOf(false) }
+                    val focusBorderColor = MaterialTheme.colorScheme.primary
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .onFocusChanged { freeFocused = it.isFocused }
+                            .border(
+                                2.dp,
+                                if (freeFocused) focusBorderColor else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                freeOnly = !freeOnly
+                                prefManager.myPrefs.freeOnly = freeOnly
+                                prefManager.savePreferences()
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        CompositionLocalProvider(
+                            LocalMinimumInteractiveComponentSize provides 0.dp
+                        ) {
+                            Checkbox(
+                                checked = freeOnly,
+                                onCheckedChange = { checked ->
+                                    freeOnly = checked
+                                    prefManager.myPrefs.freeOnly = checked
+                                    prefManager.savePreferences()
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text(
+                            text = "Free",
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+
+                    // Compact Catchup checkbox
+                    var catchupFocused by remember { mutableStateOf(false) }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .onFocusChanged { catchupFocused = it.isFocused }
+                            .border(
+                                2.dp,
+                                if (catchupFocused) focusBorderColor else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                freeJioCatchup = !freeJioCatchup
+                                prefManager.myPrefs.freeJioCatchup = freeJioCatchup
+                                prefManager.savePreferences()
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        CompositionLocalProvider(
+                            LocalMinimumInteractiveComponentSize provides 0.dp
+                        ) {
+                            Checkbox(
+                                checked = freeJioCatchup,
+                                onCheckedChange = { checked ->
+                                    freeJioCatchup = checked
+                                    prefManager.myPrefs.freeJioCatchup = checked
+                                    prefManager.savePreferences()
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text(
+                            text = "Catchup",
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                }
+            }
+
             // Channel count / status
             if (channels.isNotEmpty() && !isLoading) {
                 Row(
@@ -531,7 +714,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
             }
 
-            // --- CHANNEL CONTENT ---
+            // --- CHANNEL CONTENT GRID ---
             when {
                 isLoading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -580,7 +763,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     }
                 }
                 else -> {
-                    // Adaptive grid: same as CloudMainScreen — Adaptive(112dp TV / 100dp phone)
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = if (isTv) 112.dp else 100.dp),
                         contentPadding = PaddingValues(8.dp),
@@ -610,11 +792,47 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         }
     }
 
-    // Catchup overlay — same as CloudMainScreen
+    // Category Filter Dialog
+    if (showCategoryDialog) {
+        val categoriesList = remember(channels) {
+            channels.mapNotNull { it.group }.distinct().sorted()
+        }
+        MultiSelectFilterDialog(
+            title = "Categories",
+            options = categoriesList,
+            selectedOptions = selectedCategories,
+            onDismiss = { showCategoryDialog = false },
+            onConfirm = {
+                selectedCategories = it
+                showCategoryDialog = false
+            }
+        )
+    }
+
+    // Language Filter Dialog
+    if (showLanguageDialog) {
+        val defaultLangs = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Marathi", "Gujarati", "Punjabi", "Urdu", "Odia", "Assamese")
+        val availableLangs = remember(channels) {
+            val detected = channels.flatMap { it.language?.split(",")?.map { l -> l.trim() } ?: emptyList() }
+            (detected + defaultLangs).filter { it.isNotEmpty() }.distinct().sorted()
+        }
+        MultiSelectFilterDialog(
+            title = "Languages",
+            options = availableLangs,
+            selectedOptions = selectedLanguages,
+            onDismiss = { showLanguageDialog = false },
+            onConfirm = {
+                selectedLanguages = it
+                showLanguageDialog = false
+            }
+        )
+    }
+
+    // Catchup overlay
     catchupChannelTarget?.let { target ->
         OmniCatchupOverlay(
             channel = target,
-            localPORT = prefManager.myPrefs.jtvGoServerPort,
+            localPORT = port,
             onClose = { catchupChannelTarget = null },
             context = context,
             preferenceManager = prefManager,
@@ -628,10 +846,26 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             filteredChannels = filteredChannels
         )
     }
+
+    // Credentials Import Dialog
+    if (showImportDialog) {
+        OmniImportDialog(
+            context = context,
+            onDismiss = { showImportDialog = false }
+        )
+    }
+
+    // Credentials Export Dialog
+    if (showExportDialog) {
+        OmniExportDialog(
+            context = context,
+            onDismiss = { showExportDialog = false }
+        )
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Channel grid item — mirrors ChannelGridItemCompact exactly
+// Compact channel grid item
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniChannelGridItem(
@@ -667,13 +901,13 @@ fun OmniChannelGridItem(
                 )
                 if (channel.name?.contains("HD", ignoreCase = true) == true) {
                     Surface(
-                        color = MaterialTheme.colorScheme.error,
+                        color = Color.Red,
                         shape = RoundedCornerShape(2.dp),
                         modifier = Modifier.align(Alignment.TopEnd).padding(2.dp)
                     ) {
                         Text(
                             "HD",
-                            color = MaterialTheme.colorScheme.onError,
+                            color = Color.White,
                             fontSize = 7.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 2.dp)
@@ -698,14 +932,15 @@ fun OmniChannelGridItem(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Small filter pill — mirrors CloudFilterPill exactly
+// Cloud filter dropdown pill
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniFilterPill(
     label: String,
     active: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     var focused by remember { mutableStateOf(false) }
     val primary = MaterialTheme.colorScheme.primary
@@ -713,8 +948,9 @@ fun OmniFilterPill(
     Surface(
         modifier = modifier
             .height(28.dp)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable { onClick() },
+            .then(if (enabled) Modifier.onFocusChanged { focused = it.isFocused } else Modifier)
+            .alpha(if (enabled) 1f else 0.35f)
+            .clickable(enabled = enabled) { onClick() },
         shape = RoundedCornerShape(14.dp),
         color = if (active || focused) primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(
@@ -726,14 +962,25 @@ fun OmniFilterPill(
             modifier = Modifier.fillMaxHeight().padding(start = 10.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = label, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp, color = contentColor)
-            Icon(Icons.Filled.Close, contentDescription = null, tint = contentColor, modifier = Modifier.size(12.dp))
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 11.sp,
+                color = contentColor
+            )
+            Icon(
+                Icons.Default.ArrowDropDown,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(14.dp)
+            )
         }
     }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Drawer section label — mirrors DrawerSectionLabel exactly
+// Drawer section label
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniDrawerSectionLabel(text: String) {
@@ -755,7 +1002,7 @@ fun OmniDrawerSectionLabel(text: String) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Settings toggle row — mirrors SettingsToggleRefreshed exactly
+// Settings toggle row (Switch)
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniSettingsToggle(
@@ -792,7 +1039,189 @@ fun OmniSettingsToggle(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Catchup overlay — adapted from CloudMainScreen's CatchupOverlay
+// Settings action item (clickable button with icon)
+// ──────────────────────────────────────────────────────────────────────────────
+@Composable
+fun OmniSettingsActionItem(
+    label: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 0.dp)
+            .then(if (enabled) Modifier.onFocusChanged { isFocused = it.isFocused } else Modifier)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (enabled && isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent)
+            .border(1.dp, if (enabled && isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(6.dp))
+            .alpha(if (enabled) 1f else 0.35f)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon, null,
+            tint = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            label,
+            color = if (isFocused) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            fontSize = 11.sp
+        )
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Multi select filter dialog (mirrors CloudFilterDialog exactly)
+// ──────────────────────────────────────────────────────────────────────────────
+@Composable
+fun MultiSelectFilterDialog(
+    title: String,
+    options: List<String>,
+    selectedOptions: Set<String>,
+    singleSelect: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit,
+    onReset: (() -> Unit)? = null
+) {
+    var currentSelection by remember { mutableStateOf(selectedOptions) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF222222),
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .fillMaxHeight(0.85f)
+                .border(1.dp, Color.Gray, RoundedCornerShape(16.dp))
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.Cyan,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(options) { option ->
+                        FilterItemRow(
+                            label = option,
+                            isSelected = currentSelection.contains(option),
+                            onToggle = { selected ->
+                                if (singleSelect) {
+                                    if (selected) {
+                                        onConfirm(setOf(option))
+                                    } else {
+                                        onConfirm(emptySet())
+                                    }
+                                } else {
+                                    currentSelection = if (selected) {
+                                        currentSelection + option
+                                    } else {
+                                        currentSelection - option
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    if (onReset != null) {
+                        var isResetFocused by remember { mutableStateOf(false) }
+                        TextButton(
+                            onClick = onReset,
+                            modifier = Modifier
+                                .onFocusChanged { isResetFocused = it.isFocused }
+                                .background(if (isResetFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
+                                .border(1.dp, if (isResetFocused) Color.Red else Color.Transparent, RoundedCornerShape(4.dp))
+                        ) {
+                            Text("Reset", color = Color.Red)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                    }
+                    var isCancelFocused by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .onFocusChanged { isCancelFocused = it.isFocused }
+                            .background(if (isCancelFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
+                            .border(1.dp, if (isCancelFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(4.dp))
+                    ) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                    if (!singleSelect) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        var isApplyFocused by remember { mutableStateOf(false) }
+                        Button(
+                            onClick = { onConfirm(currentSelection) },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isApplyFocused) Color.White else Color.Cyan),
+                            modifier = Modifier
+                                .onFocusChanged { isApplyFocused = it.isFocused }
+                                .border(1.dp, if (isApplyFocused) Color.Cyan else Color.Transparent, ButtonDefaults.shape)
+                        ) {
+                            Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FilterItemRow(
+    label: String,
+    isSelected: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val bgColor by animateColorAsState(if (isFocused) Color.Cyan.copy(alpha = 0.1f) else Color.Transparent)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+            .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(8.dp))
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable { onToggle(!isSelected) }
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Checkbox(
+            checked = isSelected,
+            onCheckedChange = null,
+            colors = CheckboxDefaults.colors(
+                checkedColor = Color.Cyan,
+                uncheckedColor = if (isFocused) Color.White else Color.Gray
+            ),
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = label,
+            color = if (isFocused) Color.Cyan else Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Catchup overlay
 // ──────────────────────────────────────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -869,7 +1298,6 @@ fun OmniCatchupOverlay(
             .zIndex(100f)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -913,7 +1341,6 @@ fun OmniCatchupOverlay(
                 }
             }
 
-            // Day chips
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -948,7 +1375,6 @@ fun OmniCatchupOverlay(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
 
-            // Program list / grid
             when {
                 loading -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -1018,9 +1444,6 @@ fun OmniCatchupOverlay(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Catchup tile — mirrors CatchupTile in CloudMainScreen
-// ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniCatchupTile(
     program: EpgProgram,
@@ -1125,9 +1548,6 @@ fun OmniCatchupTile(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Native catchup stream resolver — same logic as CloudMainScreen
-// ──────────────────────────────────────────────────────────────────────────────
 suspend fun resolveCatchupStream(context: Context, renderUrl: String): ResolvedCatchupStream? {
     return withContext(Dispatchers.IO) {
         try {
@@ -1171,3 +1591,375 @@ data class ResolvedCatchupStream(
     val playUrl: String,
     val licenseUrl: String?
 )
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Import Credentials Dialog
+// ──────────────────────────────────────────────────────────────────────────────
+@Composable
+fun OmniImportDialog(
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    var importJsonContent by remember { mutableStateOf("") }
+    var isImportFocused by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val prefManager = remember { SkySharedPref.getInstance(context) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val content = inputStream.bufferedReader().use { it.readText() }
+                        inputStream.close()
+                        importJsonContent = content
+                        statusMessage = "JSON/TOML loaded. Click Save to apply."
+                    }
+                } catch (e: Exception) {
+                    statusMessage = "Error reading file: ${e.message}"
+                }
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Import Credentials",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Paste JSON/TOML or load from file",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Select File")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    BasicTextField(
+                        value = importJsonContent,
+                        onValueChange = { importJsonContent = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onFocusChanged { isImportFocused = it.isFocused },
+                        singleLine = false,
+                        maxLines = 15
+                    )
+                    if (importJsonContent.isEmpty()) {
+                        Text(
+                            text = "Paste JSON or TOML string here...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+
+                    Button(
+                        onClick = {
+                            if (importJsonContent.isBlank()) {
+                                statusMessage = "Please paste JSON/TOML string first"
+                            } else {
+                                val success = saveCredentialsText(context, importJsonContent)
+                                if (success) {
+                                    statusMessage = "Save successful! Restarting server..."
+                                    Toast.makeText(context, "Credentials saved successfully! Restarting...", Toast.LENGTH_LONG).show()
+
+                                    // Stop binary service
+                                    val stopIntent = Intent(context, BinaryService::class.java).apply {
+                                        action = BinaryService.ACTION_STOP_BINARY
+                                    }
+                                    context.startService(stopIntent)
+
+                                    // Restart binary service after delay
+                                    scope.launch(Dispatchers.IO) {
+                                        var waited = 0
+                                        while (BinaryService.isRunning && waited < 4000) {
+                                            delay(100)
+                                            waited += 100
+                                        }
+                                        val startIntent = Intent(context, BinaryService::class.java).apply {
+                                            putExtra(
+                                                "binaryFileLocation",
+                                                prefManager.myPrefs.jtvGoBinaryName?.let {
+                                                    File(context.filesDir, it).absolutePath
+                                                }
+                                            )
+                                        }
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            context.startForegroundService(startIntent)
+                                        } else {
+                                            context.startService(startIntent)
+                                        }
+                                    }
+                                } else {
+                                    statusMessage = "Invalid credentials format"
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save")
+                    }
+                }
+
+                if (statusMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = statusMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (statusMessage!!.contains("successful")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Export Credentials Dialog
+// ──────────────────────────────────────────────────────────────────────────────
+@Composable
+fun OmniExportDialog(
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    var exportJsonContent by remember { mutableStateOf("") }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    val outputStream = context.contentResolver.openOutputStream(uri)
+                    if (outputStream != null) {
+                        outputStream.write(exportJsonContent.toByteArray())
+                        outputStream.close()
+                        statusMessage = "File saved successfully!"
+                    }
+                } catch (e: Exception) {
+                    statusMessage = "Error saving file: ${e.message}"
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val creds = getJioCredentialsText(context)
+        if (creds.isBlank()) {
+            exportJsonContent = "{}"
+            Toast.makeText(context, "No credentials found to export", Toast.LENGTH_SHORT).show()
+        } else {
+            exportJsonContent = creds
+            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clipData = ClipData.newPlainText("Jio Credentials", creds)
+            clipboardManager.setPrimaryClip(clipData)
+            Toast.makeText(context, "Credentials JSON copied to clipboard!", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Export Credentials",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Copied to clipboard! You can also save to file.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    BasicTextField(
+                        value = exportJsonContent,
+                        onValueChange = {},
+                        readOnly = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier.fillMaxSize(),
+                        singleLine = false,
+                        maxLines = 15
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { exportLauncher.launch("jtv_credentials_${System.currentTimeMillis()}.json") },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save to File")
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Close")
+                    }
+                }
+
+                if (statusMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = statusMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper Functions for JSON Import/Export
+// ──────────────────────────────────────────────────────────────────────────────
+fun getJioCredentialsText(context: Context): String {
+    return try {
+        val file1 = File(context.filesDir, ".jiotv_go/jiotv_credentials_v2.json")
+        val file2 = File(context.filesDir, ".jiotv_go/credentials.json")
+        val content = if (file1.exists()) file1.readText() else if (file2.exists()) file2.readText() else null
+
+        if (!content.isNullOrBlank()) {
+            content
+        } else {
+            val loginFile = File(File(context.filesDir.parent, "files"), "store_v4.toml")
+            if (loginFile.exists()) loginFile.readText() else ""
+        }
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+fun saveCredentialsText(context: Context, content: String): Boolean {
+    return try {
+        val trimmed = content.trim()
+        if (trimmed.startsWith("{")) {
+            val parent = File(context.filesDir, ".jiotv_go")
+            if (!parent.exists()) {
+                parent.mkdirs()
+            }
+            val file1 = File(parent, "jiotv_credentials_v2.json")
+            val file2 = File(parent, "credentials.json")
+            file1.writeText(trimmed)
+            file2.writeText(trimmed)
+            true
+        } else {
+            val loginDir = File(context.filesDir.parent, "files")
+            loginDir.mkdirs()
+            val loginFile = File(loginDir, "store_v4.toml")
+            loginFile.writeText(trimmed)
+
+            val prefManager = SkySharedPref.getInstance(context)
+            prefManager.reloadPreferences()
+            true
+        }
+    } catch (e: Exception) {
+        Log.e("OmniImport", "Error saving credentials", e)
+        false
+    }
+}
+
+fun getAllCredentialsAsJson(context: Context): String {
+    return getJioCredentialsText(context)
+}
+
+fun applyCredentialsFromJson(context: Context, jsonContent: String): Boolean {
+    return saveCredentialsText(context, jsonContent)
+}

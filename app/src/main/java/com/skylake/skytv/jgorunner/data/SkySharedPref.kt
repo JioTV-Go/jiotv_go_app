@@ -139,6 +139,11 @@ class SkySharedPref(context: Context) {
         myPrefs = SharedPrefStructure() // Reset preferences after clearing
     }
 
+    // Reload all preferences from shared storage
+    fun reloadPreferences() {
+        myPrefs = readFromSharedPreferences()
+    }
+
     // Data class to store shared preferences keys and values
     data class SharedPrefStructure(
         @SharedPrefKey("serve_local") var serveLocal: Boolean = false,
@@ -218,8 +223,12 @@ class SkySharedPref(context: Context) {
 
         // Omni UI preferences
         @SharedPrefKey("omni_favorites_json") var omniFavoritesJson: String? = "[]",
-
-        )
+        @SharedPrefKey("cloudAutoplayFirstChannel") var cloudAutoplayFirstChannel: Boolean = false,
+        @SharedPrefKey("cloudAutoplayLastChannel") var cloudAutoplayLastChannel: Boolean = false,
+        @SharedPrefKey("cloudEnableSwipeGestures") var cloudEnableSwipeGestures: Boolean = true,
+        @SharedPrefKey("cloudEnableDoubleTapSeek") var cloudEnableDoubleTapSeek: Boolean = true,
+        @SharedPrefKey("cloudAnimationEnabled") var cloudAnimationEnabled: Boolean = true
+    )
 
 
     // Annotation class to define the key for SharedPreferences
