@@ -108,6 +108,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var isDarkMode by remember { mutableStateOf(prefManager.myPrefs.darkMODE) }
 
     var showImportDialog by remember { mutableStateOf(false) }
+    var settingsUpdateTrigger by remember { mutableIntStateOf(0) }
 
 
 
@@ -305,7 +306,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
                     item {
-                        var checked by remember { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
+                        var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
                         OmniSettingsToggle("Autoplay 1st CH", checked) {
                             checked = it
                             prefManager.myPrefs.omniAutoplayFirstChannel = it
@@ -313,7 +314,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var checked by remember { mutableStateOf(prefManager.myPrefs.omniAutoplayLastChannel) }
+                        var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayLastChannel) }
                         OmniSettingsToggle("Autoplay Last Played CH", checked) {
                             checked = it
                             prefManager.myPrefs.omniAutoplayLastChannel = it
@@ -321,7 +322,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var pipChecked by remember { mutableStateOf(prefManager.myPrefs.enablePip) }
+                        var pipChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.enablePip) }
                         OmniSettingsToggle("Enable PiP", pipChecked) {
                             pipChecked = it
                             prefManager.myPrefs.enablePip = it
@@ -329,7 +330,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var swipeChecked by remember { mutableStateOf(prefManager.myPrefs.omniEnableSwipeGestures) }
+                        var swipeChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniEnableSwipeGestures) }
                         OmniSettingsToggle("Vol/Bright Gestures", swipeChecked) {
                             swipeChecked = it
                             prefManager.myPrefs.omniEnableSwipeGestures = it
@@ -337,7 +338,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var doubleTapChecked by remember { mutableStateOf(prefManager.myPrefs.omniEnableDoubleTapSeek) }
+                        var doubleTapChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniEnableDoubleTapSeek) }
                         OmniSettingsToggle("Double-tap to Seek", doubleTapChecked) {
                             doubleTapChecked = it
                             prefManager.myPrefs.omniEnableDoubleTapSeek = it
@@ -345,7 +346,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var animChecked by remember { mutableStateOf(prefManager.myPrefs.omniAnimationEnabled) }
+                        var animChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAnimationEnabled) }
                         OmniSettingsToggle("Animations", animChecked) {
                             animChecked = it
                             prefManager.myPrefs.omniAnimationEnabled = it
@@ -378,8 +379,10 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
                             freeOnly = true
                             freeJioCatchup = false
+                            isDarkMode = false
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
+                            settingsUpdateTrigger++
 
                             Toast.makeText(context, "Settings reset to defaults", Toast.LENGTH_SHORT).show()
                         }
@@ -774,8 +777,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     if (freeJioCatchup) {
                                         catchupChannelTarget = channel
                                     } else {
+                                        com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = filteredChannels
                                         val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                                            putExtra("channel_list", ArrayList(filteredChannels))
                                             putExtra("channel_index", index)
                                         }
                                         context.startActivity(intent)
@@ -834,8 +837,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             context = context,
             preferenceManager = prefManager,
             onPlayChannel = { resolvedChannel ->
+                com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = listOf(resolvedChannel)
                 val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                    putExtra("channel_list", arrayListOf(resolvedChannel))
                     putExtra("channel_index", 0)
                 }
                 context.startActivity(intent)

@@ -72,6 +72,14 @@ import com.skylake.skytv.jgorunner.utils.LogCollector
 import com.skylake.skytv.jgorunner.utils.DeviceUtils
 import com.skylake.skytv.jgorunner.utils.cleanupPlaybackLogic
 import com.skylake.skytv.jgorunner.utils.setupCustomPlaybackLogic
+import com.skylake.skytv.jgorunner.utils.SafeDns
+import com.skylake.skytv.jgorunner.utils.OmniMediaDrmCallback
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
+import androidx.media3.exoplayer.drm.FrameworkMediaDrm
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -90,6 +98,95 @@ fun OmniPlayerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    val okHttpClient = remember {
+        val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
+
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(35, TimeUnit.SECONDS)
+            .readTimeout(35, TimeUnit.SECONDS)
+            .dns(SafeDns)
+            .followRedirects(false)
+            .followSslRedirects(false)
+
+        try {
+            val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(
+                @SuppressLint("CustomX509TrustManager")
+                object : javax.net.ssl.X509TrustManager {
+                    @SuppressLint("TrustAllX509TrustManager")
+                    override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                    @SuppressLint("TrustAllX509TrustManager")
+                    override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+                }
+            )
+            val sslContext = javax.net.ssl.SSLContext.getInstance("SSL").apply {
+                init(null, trustAllCerts, java.security.SecureRandom())
+            }
+            builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
+            builder.hostnameVerifier { _, _ -> true }
+        } catch (e: Exception) {
+            Log.e("OmniPlayerScreen", "Failed to configure trust-all SSL", e)
+        }
+
+        builder.addInterceptor { chain ->
+            var request = chain.request()
+            val url = request.url.toString()
+            val reqBuilder = request.newBuilder()
+
+            val jioUA = "JioTV/7.0.8 (Linux; Android 13; Pixel 7 Pro Build/TQ1A.221205.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.64 Mobile Safari/537.36"
+
+            if (url.contains("jio.com", true) || url.contains("jio.dev", true) || url.contains("webplay.fun", true) || url.contains("jiotv.jio.com", true)) {
+                if (request.header("User-Agent").isNullOrBlank()) reqBuilder.header("User-Agent", jioUA)
+                if (request.header("os").isNullOrBlank()) reqBuilder.header("os", "android")
+                if (request.header("devicetype").isNullOrBlank()) reqBuilder.header("devicetype", "phone")
+                if (request.header("uniqueId").isNullOrBlank()) reqBuilder.header("uniqueId", androidId)
+                if (request.header("deviceId").isNullOrBlank()) reqBuilder.header("deviceId", androidId)
+                if (request.header("appname").isNullOrBlank()) reqBuilder.header("appname", "com.jio.jiotv")
+                if (request.header("versionCode").isNullOrBlank()) reqBuilder.header("versionCode", "323")
+                if (request.header("X-Jio-Network-Type").isNullOrBlank()) reqBuilder.header("X-Jio-Network-Type", "WIFI")
+                if (request.header("X-Requested-With").isNullOrBlank()) reqBuilder.header("X-Requested-With", "com.jio.jiotv")
+                if (request.header("Origin").isNullOrBlank()) reqBuilder.header("Origin", "https://jiotv.jio.com")
+                if (request.header("Referer").isNullOrBlank()) reqBuilder.header("Referer", "https://jiotv.jio.com/")
+            }
+
+            request = reqBuilder.build()
+
+            val referer = request.header("Referer")
+            val origin = request.header("Origin")
+            val userAgent = request.header("User-Agent")
+            val cookie = request.header("Cookie")
+            val xRequestedWith = request.header("X-Requested-With")
+
+            var response = chain.proceed(request)
+            var tryCount = 0
+            while (response.isRedirect && tryCount < 10) {
+                var newUrl = response.header("Location") ?: break
+                if (!newUrl.startsWith("http://", ignoreCase = true) && !newUrl.startsWith("https://", ignoreCase = true)) {
+                    try {
+                        val baseHttpUrl = request.url
+                        val resolved = baseHttpUrl.resolve(newUrl)
+                        if (resolved != null) {
+                            newUrl = resolved.toString()
+                        }
+                    } catch (_: java.lang.Exception) {}
+                }
+                response.close()
+
+                val newReqBuilder = request.newBuilder().url(newUrl)
+                if (!referer.isNullOrBlank()) newReqBuilder.header("Referer", referer)
+                if (!origin.isNullOrBlank()) newReqBuilder.header("Origin", origin)
+                if (!userAgent.isNullOrBlank()) newReqBuilder.header("User-Agent", userAgent)
+                if (!cookie.isNullOrBlank()) newReqBuilder.header("Cookie", cookie)
+                if (!xRequestedWith.isNullOrBlank()) newReqBuilder.header("X-Requested-With", xRequestedWith)
+                request = newReqBuilder.build()
+                response = chain.proceed(request)
+                tryCount++
+            }
+            response
+        }
+        .build()
+    }
 
     var activeList by remember { mutableStateOf(channelList) }
     var currentIndex by remember(initialIndex) { mutableIntStateOf(initialIndex) }
@@ -129,6 +226,7 @@ fun OmniPlayerScreen(
     var numericJob by remember { mutableStateOf<Job?>(null) }
 
     var useDrm by remember(currentIndex) { mutableStateOf(true) }
+    var playbackTrigger by remember(currentIndex) { mutableIntStateOf(0) }
     var drmRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
     var catchupRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
 
@@ -265,15 +363,85 @@ fun OmniPlayerScreen(
             }
     }
 
-    LaunchedEffect(currentIndex, useDrm) {
+    LaunchedEffect(currentIndex, useDrm, playbackTrigger) {
         val ch = activeList.getOrNull(currentIndex) ?: return@LaunchedEffect
         activeChannel = ch
         playerError = null
         try {
-            val mediaItem = buildOmniMediaItem(ch, forceDrm = useDrm)
-            exoPlayer.setMediaItem(mediaItem)
+            val normalizedHeaders = mutableMapOf<String, String>()
+            normalizedHeaders["Accept"] = "*/*"
+            normalizedHeaders["Connection"] = "keep-alive"
+            
+            val jioUA = "JioTV/7.0.8 (Linux; Android 13; Pixel 7 Pro Build/TQ1A.221205.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.64 Mobile Safari/537.36"
+            val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
+            normalizedHeaders["User-Agent"] = jioUA
+            normalizedHeaders["Origin"] = "https://jiotv.jio.com"
+            normalizedHeaders["Referer"] = "https://jiotv.jio.com/"
+            normalizedHeaders["X-Requested-With"] = "com.jio.jiotv"
+            
+            ch.headers?.forEach { (k, v) ->
+                normalizedHeaders[k] = v
+            }
+
+            var resolvedLicenseUrl = ch.licenseUrl
+            var playbackUrl = ch.mpdUrl ?: ch.m3u8Url ?: ch.url ?: ""
+            
+            val isMpd = ch.mpdUrl != null || ch.url?.contains(".mpd") == true
+            if (resolvedLicenseUrl.isNullOrBlank()) {
+                val targetUrl = if (useDrm) {
+                    playbackUrl.replace("/live/mpd/", "/live/mpd/").replace("/live/", "/live/mpd/").replace(".m3u8", ".mpd")
+                } else {
+                    playbackUrl.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
+                }
+                playbackUrl = targetUrl
+                if (useDrm || isMpd) {
+                    resolvedLicenseUrl = playbackUrl.replace("/live/mpd/", "/live/key/").replace(".mpd", "")
+                }
+            }
+
+            val builder = MediaItem.Builder()
+                .setUri(playbackUrl.toUri())
+                .setMediaId(ch.id ?: "")
+
+            val isDrm = !resolvedLicenseUrl.isNullOrBlank()
+            if (isDrm) {
+                builder.setDrmConfiguration(
+                    MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                        .setLicenseUri(resolvedLicenseUrl)
+                        .setLicenseRequestHeaders(normalizedHeaders)
+                        .setMultiSession(true)
+                        .build()
+                )
+                builder.setMimeType(MimeTypes.APPLICATION_MPD)
+            } else {
+                builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            }
+            val mediaItem = builder.build()
+
+            val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            dataSourceFactory.setDefaultRequestProperties(normalizedHeaders)
+            val defaultDataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(context, dataSourceFactory)
+
+            var drmSessionManager: DefaultDrmSessionManager? = null
+            if (isDrm) {
+                val drmCallback = OmniMediaDrmCallback(resolvedLicenseUrl!!, normalizedHeaders, okHttpClient)
+                drmSessionManager = DefaultDrmSessionManager.Builder()
+                    .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                    .setMultiSession(true)
+                    .build(drmCallback)
+            }
+
+            val mediaSourceFactory = DefaultMediaSourceFactory(context)
+                .setDataSourceFactory(defaultDataSourceFactory)
+            if (drmSessionManager != null) {
+                mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+            }
+
+            val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
+            exoPlayer.stop()
+            exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
-            exoPlayer.play()
+            exoPlayer.playWhenReady = true
             triggerControllerTimeout()
         } catch (e: Exception) {
             Log.e(OMNI_TAG, "Failed to prepare playback", e)
@@ -656,10 +824,7 @@ fun OmniPlayerScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(onClick = {
                         playerError = null
-                        val url = activeChannel?.m3u8Url ?: activeChannel?.url ?: return@Button
-                        exoPlayer.setMediaItem(MediaItem.fromUri(url))
-                        exoPlayer.prepare()
-                        exoPlayer.play()
+                        playbackTrigger++
                     }) {
                         Text("Retry")
                     }
@@ -684,10 +849,7 @@ fun OmniPlayerScreen(
                 onMenuClick = { showSettingsPanel = true },
                 onChannelsClick = { showChannelPanel = true },
                 onRefreshClick = {
-                    val url = activeChannel?.m3u8Url ?: activeChannel?.url ?: return@OmniPlayerOverlay
-                    exoPlayer.setMediaItem(MediaItem.fromUri(url))
-                    exoPlayer.prepare()
-                    exoPlayer.play()
+                    playbackTrigger++
                 },
                 onPrevClick = {
                     if (activeList.isNotEmpty()) currentIndex = (currentIndex - 1 + activeList.size) % activeList.size

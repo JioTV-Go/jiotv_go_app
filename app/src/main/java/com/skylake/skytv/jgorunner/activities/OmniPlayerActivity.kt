@@ -48,7 +48,7 @@ class OmniPlayerActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        channelList = intent.getSerializableExtra("channel_list") as? List<OmniChannel> ?: emptyList()
+        channelList = com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList
         initialIndex = intent.getIntExtra("channel_index", 0).coerceIn(0, maxOf(0, channelList.size - 1))
         applyImmersive()
         setContent {

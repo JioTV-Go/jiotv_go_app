@@ -67,6 +67,7 @@ class OmniRepository(private val context: Context) {
         var name: String? = null
         var logo: String? = null
         var group: String? = null
+        var language: String? = null
         var url: String? = null
 
         val languages = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Marathi", "Gujarati", "Punjabi", "Urdu", "Odia", "Assamese")
@@ -80,16 +81,22 @@ class OmniRepository(private val context: Context) {
                 logo = lg?.groupValues?.get(1)
                 val gr = Regex("""group-title="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
                 group = gr?.groupValues?.get(1)
+                
+                val ln = Regex("""tvg-language="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
+                    ?: Regex("""language="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
+                    ?: Regex("""tvg-lang="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
+                language = ln?.groupValues?.get(1)
             } else if (t.startsWith("http") && name != null) {
                 url = t
                 val extractedId = url.substringAfterLast("/").substringBefore(".").trim()
                 
-                var lang: String? = null
-                val combinedText = "${group ?: ""} ${name ?: ""}".lowercase()
-                for (l in languages) {
-                    if (combinedText.contains(l.lowercase())) {
-                        lang = l
-                        break
+                if (language.isNullOrBlank()) {
+                    val combinedText = "${group ?: ""} ${name ?: ""}".lowercase()
+                    for (l in languages) {
+                        if (combinedText.contains(l.lowercase())) {
+                            language = l
+                            break
+                        }
                     }
                 }
 
@@ -97,13 +104,13 @@ class OmniRepository(private val context: Context) {
                     id = extractedId, 
                     name = name, 
                     group = group, 
-                    language = lang, 
+                    language = language, 
                     logo = logo, 
                     url = url, 
                     m3u8Url = url, 
                     mpdUrl = null
                 ))
-                name = null; logo = null; group = null; url = null
+                name = null; logo = null; group = null; language = null; url = null
             }
         }
         return channels
