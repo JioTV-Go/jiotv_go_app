@@ -1910,17 +1910,44 @@ fun OmniExportDialog(
 // ──────────────────────────────────────────────────────────────────────────────
 // Helper Functions for JSON Import/Export
 // ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper Functions for JSON/TOML Import/Export
+// ──────────────────────────────────────────────────────────────────────────────
+fun hasLoggedInSession(content: String?): Boolean {
+    if (content.isNullOrBlank()) return false
+    val tokenPatterns = listOf("ssoToken", "sso_token", "accessToken", "access_token")
+    for (pattern in tokenPatterns) {
+        val idx = content.indexOf(pattern, ignoreCase = true)
+        if (idx != -1) {
+            val substring = content.substring(idx)
+            val valuePart = substring.substringBefore("\n").substringBefore(",").substringBefore("}")
+            val cleanValue = valuePart.replace("\"", "").replace("'", "").replace("=", "").replace(":", "").trim()
+            if (cleanValue.length > 10) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 fun getJioCredentialsText(context: Context): String {
     return try {
         val file1 = File(context.filesDir, ".jiotv_go/jiotv_credentials_v2.json")
         val file2 = File(context.filesDir, ".jiotv_go/credentials.json")
-        val content = if (file1.exists()) file1.readText() else if (file2.exists()) file2.readText() else null
+        val tomlFile = File(File(context.filesDir.parent, "files"), "store_v4.toml")
 
-        if (!content.isNullOrBlank()) {
-            content
-        } else {
-            val loginFile = File(File(context.filesDir.parent, "files"), "store_v4.toml")
-            if (loginFile.exists()) loginFile.readText() else ""
+        val content1 = if (file1.exists()) file1.readText() else ""
+        val content2 = if (file2.exists()) file2.readText() else ""
+        val contentToml = if (tomlFile.exists()) tomlFile.readText() else ""
+
+        when {
+            hasLoggedInSession(content1) -> content1
+            hasLoggedInSession(content2) -> content2
+            hasLoggedInSession(contentToml) -> contentToml
+            content1.isNotBlank() -> content1
+            content2.isNotBlank() -> content2
+            contentToml.isNotBlank() -> contentToml
+            else -> ""
         }
     } catch (e: Exception) {
         ""
@@ -1930,6 +1957,7 @@ fun getJioCredentialsText(context: Context): String {
 fun saveCredentialsText(context: Context, content: String): Boolean {
     return try {
         val trimmed = content.trim()
+        val gson = Gson()
         if (trimmed.startsWith("{")) {
             val parent = File(context.filesDir, ".jiotv_go")
             if (!parent.exists()) {
@@ -1939,6 +1967,21 @@ fun saveCredentialsText(context: Context, content: String): Boolean {
             val file2 = File(parent, "credentials.json")
             file1.writeText(trimmed)
             file2.writeText(trimmed)
+
+            val map = gson.fromJson(trimmed, Map::class.java)
+            val tomlBuilder = StringBuilder()
+            map.forEach { (k, v) ->
+                if (k != null && v != null) {
+                    tomlBuilder.append("$k = \"$v\"\n")
+                }
+            }
+            val loginDir = File(context.filesDir.parent, "files")
+            loginDir.mkdirs()
+            val loginFile = File(loginDir, "store_v4.toml")
+            loginFile.writeText(tomlBuilder.toString())
+
+            val prefManager = SkySharedPref.getInstance(context)
+            prefManager.reloadPreferences()
             true
         } else {
             val loginDir = File(context.filesDir.parent, "files")
@@ -1946,12 +1989,39 @@ fun saveCredentialsText(context: Context, content: String): Boolean {
             val loginFile = File(loginDir, "store_v4.toml")
             loginFile.writeText(trimmed)
 
+            val map = mutableMapOf<String, String>()
+            trimmed.lines().forEach { line ->
+                val lineTrimmed = line.trim()
+                if (lineTrimmed.isNotEmpty() && !lineTrimmed.startsWith("#") && lineTrimmed.contains("=")) {
+                    val parts = lineTrimmed.split("=", limit = 2)
+                    if (parts.size == 2) {
+                        val key = parts[0].trim()
+                        var value = parts[1].trim()
+                        if (value.startsWith("\"") && value.endsWith("\"")) {
+                            value = value.substring(1, value.length - 1)
+                        } else if (value.startsWith("'") && value.endsWith("'")) {
+                            value = value.substring(1, value.length - 1)
+                        }
+                        map[key] = value
+                    }
+                }
+            }
+            val json = gson.toJson(map)
+            val parent = File(context.filesDir, ".jiotv_go")
+            if (!parent.exists()) {
+                parent.mkdirs()
+            }
+            val file1 = File(parent, "jiotv_credentials_v2.json")
+            val file2 = File(parent, "credentials.json")
+            file1.writeText(json)
+            file2.writeText(json)
+
             val prefManager = SkySharedPref.getInstance(context)
             prefManager.reloadPreferences()
             true
         }
     } catch (e: Exception) {
-        Log.e("OmniImport", "Error saving credentials", e)
+        Log.e("JioImport", "Error saving credentials", e)
         false
     }
 }
