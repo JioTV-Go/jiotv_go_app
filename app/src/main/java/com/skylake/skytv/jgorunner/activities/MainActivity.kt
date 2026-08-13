@@ -122,7 +122,7 @@ class MainActivity : FragmentActivity() {
 
     private var showOperationDialog by mutableStateOf(false)
 
-    private var isSwitchDarkMode by mutableStateOf(false)
+    var isSwitchDarkMode by mutableStateOf(false)
 
     override fun onStart() {
         super.onStart()

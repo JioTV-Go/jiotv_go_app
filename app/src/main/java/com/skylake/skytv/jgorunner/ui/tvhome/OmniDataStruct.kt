@@ -16,5 +16,6 @@ data class OmniChannel(
     @SerializedName("mpd_url") val mpdUrl: String? = null,
     @SerializedName("license_url") val licenseUrl: String? = null,
     @SerializedName("headers") val headers: Map<String, String>? = null,
-    @SerializedName("id") val id: String? = null
+    @SerializedName("id") val id: String? = null,
+    @SerializedName("requiresSubscription") val requiresSubscription: Boolean = false
 ) : Serializable

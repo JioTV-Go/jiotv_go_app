@@ -19,10 +19,42 @@ class OmniRepository(private val context: Context) {
         try {
             val url = "http://localhost:$port/playlist.m3u"
             val request = Request.Builder().url(url).build()
-            client.newCall(request).execute().use { response ->
+            val m3uChannels = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext emptyList()
                 parseM3U(response.body?.string() ?: "")
             }
+
+            if (m3uChannels.isEmpty()) return@withContext emptyList()
+
+            // Fetch JSON /channels for requiresSubscription
+            try {
+                val jsonRequest = Request.Builder().url("http://localhost:$port/channels").build()
+                client.newCall(jsonRequest).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val jsonBody = response.body?.string() ?: return@use
+                        val jsonObj = com.google.gson.JsonParser.parseString(jsonBody).asJsonObject
+                        val resultArray = jsonObj.getAsJsonArray("result") ?: return@use
+                        val subscriptionMap = mutableMapOf<String, Boolean>()
+                        for (el in resultArray) {
+                            val obj = el.asJsonObject
+                            val id = obj.get("channel_id")?.asInt?.toString() ?: continue
+                            val requiresSub = obj.get("requiresSubscription")?.asBoolean ?: false
+                            if (requiresSub) subscriptionMap[id] = true
+                        }
+                        if (subscriptionMap.isNotEmpty()) {
+                            return@withContext m3uChannels.map { ch ->
+                                if (ch.id != null && subscriptionMap[ch.id] == true) {
+                                    ch.copy(requiresSubscription = true)
+                                } else ch
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("OmniRepository", "Failed to fetch subscription info: ${e.message}")
+            }
+
+            m3uChannels
         } catch (e: Exception) {
             Log.e("OmniRepository", "Error", e)
             emptyList()

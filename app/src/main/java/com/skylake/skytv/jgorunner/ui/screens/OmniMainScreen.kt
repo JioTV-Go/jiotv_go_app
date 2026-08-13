@@ -105,6 +105,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
     var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
     var catchupChannelTarget by remember { mutableStateOf<OmniChannel?>(null) }
+    var isDarkMode by remember { mutableStateOf(prefManager.myPrefs.darkMODE) }
 
     var showImportDialog by remember { mutableStateOf(false) }
 
@@ -137,7 +138,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 filter.contains(channel.language.orEmpty(), ignoreCase = true)
             }
 
-            val matchesFreeOnly = !freeOnly || channel.url?.contains("/live/") == true
+            val matchesFreeOnly = !freeOnly || !channel.requiresSubscription
 
             matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
         }
@@ -181,10 +182,14 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val isTv = com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context)
     val drawerWidth = if (isTv) 300.dp else 244.dp
 
+    val bgColor = if (isDarkMode) Color(0xFF121212) else Color(0xFFF5F5F5)
+    val cardBg = if (isDarkMode) Color(0xFF1E1E1E) else Color.White
+    val textColor = if (isDarkMode) Color.White else Color(0xFF1C1B1F)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(bgColor)
     ) {
         // --- SIDEBAR DRAWER ---
         AnimatedVisibility(
@@ -317,7 +322,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     }
                     item {
                         var pipChecked by remember { mutableStateOf(prefManager.myPrefs.enablePip) }
-                        OmniSettingsToggle("PiP Mode", pipChecked) {
+                        OmniSettingsToggle("Enable PiP", pipChecked) {
                             pipChecked = it
                             prefManager.myPrefs.enablePip = it
                             prefManager.savePreferences()
@@ -351,11 +356,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- SYSTEM ----
                     item { OmniDrawerSectionLabel("SYSTEM") }
                     item {
-                        var darkChecked by remember { mutableStateOf(prefManager.myPrefs.darkMODE) }
-                        OmniSettingsToggle("Dark Theme", darkChecked) {
-                            darkChecked = it
-                            prefManager.myPrefs.darkMODE = it
+                        OmniSettingsToggle("Day / Night Mode", isDarkMode) { checked ->
+                            isDarkMode = checked
+                            prefManager.myPrefs.darkMODE = checked
                             prefManager.savePreferences()
+                            (context as? com.skylake.skytv.jgorunner.activities.MainActivity)?.isSwitchDarkMode = checked
                         }
                     }
                     item {
