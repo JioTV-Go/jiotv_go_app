@@ -417,8 +417,25 @@ class WebPlayerActivity : ComponentActivity() {
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+            super.onPageFinished(view, url)
+            CookieManager.getInstance().flush()
+            playerUrlCount = 0 
+
             loadingSpinner!!.visibility = View.GONE
-            if (url.contains("/player/")) {
+
+            if (url.contains("/mpd/")) {
+                view.loadUrl(
+                    "javascript:(function() { " +
+                            "var video = document.getElementsByTagName('video')[0]; " +
+                            "if (video) { " +
+                            "  video.style.width = '100vw'; " +
+                            "  video.style.height = '100vh'; " +
+                            "  video.style.objectFit = 'contain'; " +
+                            "  video.play(); " +
+                            "} " +
+                            "})()"
+                )
+            } else if (url.contains("/player/")) {
                 Log.d(TAG, "Playing: $url")
                 setupFullScreenMode()
                 playVideoInFullScreen(view)

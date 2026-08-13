@@ -8,6 +8,9 @@ import android.util.Log
 import android.view.ContextThemeWrapper
 import android.widget.Toast
 import androidx.compose.animation.Animatable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -48,10 +52,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,6 +67,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.mediarouter.app.MediaRouteButton
 import com.google.android.gms.cast.framework.CastButtonFactory
 import com.google.android.gms.cast.framework.CastContext
@@ -68,11 +75,13 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.ui.tvhome.Favorites_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
 import com.skylake.skytv.jgorunner.ui.tvhome.Recent_Layout
-import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
 import com.skylake.skytv.jgorunner.ui.tvhome.SearchTabLayout
+import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
+import com.skylake.skytv.jgorunner.ui.tvhome.TvViewModel
 import com.skylake.skytv.jgorunner.utils.HandleTvBackKey
 import com.skylake.skytv.jgorunner.utils.RememberBackPressManager
 import kotlinx.coroutines.delay
@@ -90,10 +99,13 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
 
     var reloadChannelsTrigger by remember { mutableIntStateOf(0) }
 
+    val tvViewModel: TvViewModel = viewModel()
+
 
     val tabs = listOf(
         TabItem("TV", Icons.Default.Tv),
-        TabItem("Recent", Icons.Default.Star),
+        TabItem("Favorite", Icons.Default.Star),
+//        TabItem("Recent", Icons.Default.History),
         TabItem("Search", Icons.Default.Search)
     )
 
@@ -114,12 +126,12 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     val coroutineScope = rememberCoroutineScope()
 
     var firstLaunch by remember { mutableStateOf(true) }
+    val GoldColor = Color(0xFFFFD700)
 
     fun isTelevision(): Boolean {
         return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     }
     val isTv = isTelevision()
-
 
 //    val isSessionConnected = remember { mutableStateOf(false) }
 //
@@ -234,7 +246,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     )
                 )
 
-                // RIGHT: Cast + Settings
+                // RIGHT: Settings
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
@@ -287,11 +299,9 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
             if (preferenceManager.myPrefs.customPlaylistSupport &&
                 !preferenceManager.myPrefs.showPLAYLIST
             ) {
-
                 Main_Layout_3rd(context, reloadTrigger = reloadChannelsTrigger)
-            } else if (!preferenceManager.myPrefs.showRecentTab) {
+            } else if (!preferenceManager.myPrefs.showAllTabs) {
                 Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
-
             } else {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -304,25 +314,76 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
                             .focusRestorer()
-                            .focusRequester(tabFocusRequester)
-                            .focusable(),
+                            .focusRequester(tabFocusRequester),
+//                            .focusable(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                             tabs.forEachIndexed { index, tab ->
+                                var isFocused by remember { mutableStateOf(false) }
+                                val isActive = index == selectedTabIndex || isFocused
+
                                 Tab(
+                                    modifier = Modifier
+                                        .onFocusChanged { focusState ->
+                                            isFocused = focusState.isFocused
+                                        }
+                                        .scale(if (isFocused) 1.05f else 1.0f) // Subtle focus scale for TV
+                                        .border(
+                                            border = if (isFocused) BorderStroke(
+                                                2.dp,
+                                                GoldColor
+                                            ) else BorderStroke(0.dp, Color.Transparent),
+                                            shape = MaterialTheme.shapes.small
+                                        )
+                                        .background(
+                                            color = when {
+                                                isFocused -> GoldColor.copy(alpha = 0.25f)
+                                                index == selectedTabIndex -> MaterialTheme.colorScheme.primary.copy(
+                                                    alpha = 0.15f
+                                                )
+
+                                                else -> Color.Transparent
+                                            },
+                                            shape = MaterialTheme.shapes.small
+                                        ),
                                     selected = index == selectedTabIndex,
-                                    onClick = { selectedTabIndex = index },
+                                    onClick = {
+                                        selectedTabIndex = index
+                                    },
                                     text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier.padding(
+                                                horizontal = 8.dp,
+                                                vertical = 4.dp
+                                            ),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Icon(
                                                 imageVector = tab.icon,
-                                                contentDescription = "Tab Icon",
-                                                modifier = Modifier.size(16.dp),
-                                                tint = MaterialTheme.colorScheme.primary
+                                                contentDescription = tab.text,
+                                                modifier = Modifier.size(20.dp),
+                                                tint = when {
+                                                    isFocused -> GoldColor
+                                                    isActive -> MaterialTheme.colorScheme.primary
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                }
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(text = tab.text)
+                                            if (isActive) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = tab.text,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                                    color = when {
+                                                        isFocused -> GoldColor
+                                                        index == selectedTabIndex -> MaterialTheme.colorScheme.primary
+                                                        else -> MaterialTheme.colorScheme.onSurface
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 )
@@ -330,11 +391,14 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
 
+
+
                     // Tab Content
                     when (selectedTabIndex) {
                         0 -> Main_Layout(context, reloadTrigger = reloadChannelsTrigger)
-                        1 -> Recent_Layout(context)
-                        2 -> SearchTabLayout(context, tabFocusRequester)
+                        1 -> Favorites_Layout(context, viewModel = tvViewModel, basefinURL = tvViewModel.basefinURL)
+//                        2 -> Recent_Layout(context, viewModel = tvViewModel, basefinURL = tvViewModel.basefinURL)
+                        2 -> SearchTabLayout(context, tabFocusRequester, tvViewModel)
                     }
                 }
             }

@@ -29,7 +29,8 @@ class ExoPlayJet : ComponentActivity() {
 
     private val tag = "ExoJetPack"
 
-    private var videoUrlState by mutableStateOf("http://localhost:5001/live/143.m3u8")
+    private var videoUrlState by mutableStateOf("http://localhost:5001/live/mpd/143")
+    private var keyUrlState by mutableStateOf("http://localhost:5001/live/key/143")
     private var logoUrlState by mutableStateOf("https://www.sonypicturesnetworks.com/images/logos/SET%20LOGO.png")
     private var channelNameState by mutableStateOf("HANA4k")
     private var signatureFallbackState by mutableStateOf("0x0")
@@ -52,17 +53,18 @@ class ExoPlayJet : ComponentActivity() {
                 ExoPlayJetScreen(
                     preferenceManager = prefManager,
                     videoUrl = videoUrlState,
+                    keyUrl=keyUrlState,
                     channelList = channelListState,
                     currentChannelIndex = currentChannelIndexState,
                     onError = { failedUrl ->
                         Log.e(tag, "Playback failed, switching to WebView: $failedUrl")
 
-                        val intent = Intent(this@ExoPlayJet, WebPlayerActivity::class.java).apply {
-                            putExtra("video_url", failedUrl)
-                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        }
-
-                        startActivity(intent)
+//                        val intent = Intent(this@ExoPlayJet, WebPlayerActivity::class.java).apply {
+//                            putExtra("video_url", failedUrl)
+//                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+//                        }
+//
+//                        startActivity(intent)
 
                         finish()
                     }
@@ -149,6 +151,7 @@ class ExoPlayJet : ComponentActivity() {
             )
         } else {
             videoUrlState = parsed.videoUrl ?: videoUrlState
+            keyUrlState = parsed.keyUrl ?: keyUrlState
             logoUrlState = parsed.logoUrl ?: logoUrlState
             channelNameState = parsed.channelName ?: channelNameState
             Log.d(tag, "Loaded channel from direct intent extras: $channelNameState")

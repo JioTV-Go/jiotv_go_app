@@ -1,4 +1,4 @@
-name: APK Build and Release Pipeline
+name: Production Release Workflow
 
 env:
   main_project_module: app

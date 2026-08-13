@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -85,19 +84,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
-import androidx.glance.color.DynamicThemeColorProviders.onError
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
+import androidx.media3.exoplayer.drm.FrameworkMediaDrm
+import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
 import androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -111,8 +115,6 @@ import com.skylake.skytv.jgorunner.receivers.PipActionReceiver
 import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.ui.tvhome.ChannelUtils
 import com.skylake.skytv.jgorunner.ui.tvhome.extractChannelIdFromPlayUrl
-import com.skylake.skytv.jgorunner.utils.DeviceUtils
-import com.skylake.skytv.jgorunner.utils.containsAnyId
 import com.skylake.skytv.jgorunner.utils.setupCustomPlaybackLogic
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -122,6 +124,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import kotlin.math.pow
 
 const val TAG = "ExoJetScreen"
 
@@ -133,6 +136,7 @@ const val TAG = "ExoJetScreen"
 fun ExoPlayJetScreen(
     preferenceManager: SkySharedPref,
     videoUrl: String,
+    keyUrl: String,
     channelList: ArrayList<ChannelInfo>?,
     currentChannelIndex: Int,
     onError: (String) -> Unit
@@ -148,7 +152,8 @@ fun ExoPlayJetScreen(
         try {
             val pm = context.packageManager
             pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking TV feature", e)
             false
         }
     }
@@ -166,8 +171,6 @@ fun ExoPlayJetScreen(
     var numericJob: Job? by remember { mutableStateOf(null) }
     var isControllerVisible by remember { mutableStateOf(false) }
 
-
-    // Keep local state in sync when a new intent provides a different index
     LaunchedEffect(currentChannelIndex) {
         val incoming = currentChannelIndex.coerceAtLeast(0)
         if (incoming != currentIndex) {
@@ -175,33 +178,51 @@ fun ExoPlayJetScreen(
         }
     }
 
-    // --- Epg fetch ---
     val epgCache = remember { mutableStateMapOf<String, Pair<Long, String?>>() }
+
+    LaunchedEffect(currentIndex, channelList) {
+        val currentChannel = channelList?.getOrNull(currentIndex) ?: return@LaunchedEffect
+        val channelId = extractChannelIdFromPlayUrl(currentChannel.videoUrl) ?: return@LaunchedEffect
+
+        val now = System.currentTimeMillis()
+        val cached = epgCache[channelId]
+
+        if (cached == null || now - cached.first > 900_000) {
+            val epgName = withContext(Dispatchers.IO) {
+                fetchCurrentProgram(basefinURL, channelId)
+            }
+            epgCache[channelId] = now to epgName
+        }
+    }
+
     LaunchedEffect(showChannelPanel, channelList) {
         if (showChannelPanel && channelList != null) {
             while (showChannelPanel) {
                 val visibleChannels = channelList
                 withContext(Dispatchers.IO) {
-                    visibleChannels.mapNotNull { channel ->
-                        val channelId = extractChannelIdFromPlayUrl(channel.videoUrl)
-                        if (channelId != null) {
-                            async {
-                                val now = System.currentTimeMillis()
-                                val cached = epgCache[channelId]
-                                if (cached == null || now - cached.first > 900_000) {
-                                    val epgName = fetchCurrentProgram(basefinURL, channelId)
-                                    epgCache[channelId] = now to epgName
+                    
+                    visibleChannels.chunked(10).forEach { chunk ->
+                        chunk.mapNotNull { channel ->
+                            val channelId = extractChannelIdFromPlayUrl(channel.videoUrl)
+                            if (channelId != null) {
+                                async {
+                                    val now = System.currentTimeMillis()
+                                    val cached = epgCache[channelId]
+                                    if (cached == null || now - cached.first > 900_000) {
+                                        val epgName = fetchCurrentProgram(basefinURL, channelId)
+                                        epgCache[channelId] = now to epgName
+                                    }
                                 }
-                            }
-                        } else null
-                    }.awaitAll()
+                            } else null
+                        }.awaitAll()
+                        delay(500) 
+                    }
                 }
                 delay(900_000)
             }
         }
     }
 
-    // --- Resize Config ---
     val resizeModes = remember {
         listOf(
             Triple(RESIZE_MODE_FIT, "Default", "DEF"),
@@ -214,7 +235,6 @@ fun ExoPlayJetScreen(
     var resizeOverlayJob by remember { mutableStateOf<Job?>(null) }
     var videoAspect by remember { mutableFloatStateOf(16f / 9f) }
 
-    // --- Key Num Entry ---
     fun commitNumericEntryLocal(list: ArrayList<ChannelInfo>?) {
         val num = numericBuffer.toIntOrNull()
         if (num != null && !list.isNullOrEmpty()) {
@@ -228,6 +248,7 @@ fun ExoPlayJetScreen(
     val exoPlayer = remember {
         initializePlayer(
             getCurrentVideoUrl = { channelList?.getOrNull(currentIndex)?.videoUrl ?: videoUrl },
+            getCurrentKeyUrl = { channelList?.getOrNull(currentIndex)?.keyUrl ?: keyUrl },
             context = context,
             retryCountRef = retryCountRef,
             localPort = localPORT,
@@ -235,7 +256,6 @@ fun ExoPlayJetScreen(
         )
     }
 
-    // --- Resize Config ---
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -255,29 +275,28 @@ fun ExoPlayJetScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> exoPlayer.playWhenReady = true
-                Lifecycle.Event.ON_PAUSE -> if (!PlayerCommandBus.isInPipMode && !PlayerCommandBus.isEnteringPip) exoPlayer.playWhenReady =
-                    false
-
-                Lifecycle.Event.ON_DESTROY -> {
-                    try {
-                        exoPlayer.stop()
-                        exoPlayer.clearMediaItems()
-                    } catch (_: Exception) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    if (!PlayerCommandBus.isInPipMode && !PlayerCommandBus.isEnteringPip) {
+                        exoPlayer.playWhenReady = false
                     }
-                    exoPlayer.release()
                 }
-
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayerView?.player = null
+            try {
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping player on dispose", e)
+            }
             exoPlayer.release()
         }
     }
 
-    // --- Custom Buffering ---
     var isBuffering by remember { mutableStateOf(false) }
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
@@ -286,7 +305,6 @@ fun ExoPlayJetScreen(
                 if (state == Player.STATE_READY) {
                     isBuffering = false
                 }
-                // Update PiP actions as play/pause state may have effectively changed
                 PlayerCommandBus.notifyStateChanged()
             }
 
@@ -300,7 +318,6 @@ fun ExoPlayJetScreen(
 
             @Deprecated("Deprecated in Java")
             override fun onPositionDiscontinuity(reason: Int) {
-                // Seek or track changes can flip playing state; refresh PiP actions
                 PlayerCommandBus.notifyStateChanged()
             }
         }
@@ -318,11 +335,19 @@ fun ExoPlayJetScreen(
         retryCountRef.value = 0
         isBuffering = true
         val currentUrl = channelList?.getOrNull(currentIndex)?.videoUrl ?: videoUrl
-        exoPlayer.setMediaItem(MediaItem.fromUri(currentUrl.toUri()))
+        val currrentKeyUrl = channelList?.getOrNull(currentIndex)?.keyUrl ?: keyUrl
+
+        
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+
+        val mediaItem = buildMediaItem(currentUrl, currrentKeyUrl)
+        val mediaSourceFactory = createL3MediaSourceFactory(context, currrentKeyUrl)
+
+        exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
-        // そにー Hook
         setupCustomPlaybackLogic(exoPlayer, currentUrl)
 
         if (!PlayerCommandBus.isInPipMode) {
@@ -332,7 +357,6 @@ fun ExoPlayJetScreen(
         }
     }
 
-    // Expose player controls to PiP actions
     DisposableEffect(Unit) {
         PlayerCommandBus.setHandlers(
             playPause = {
@@ -340,11 +364,7 @@ fun ExoPlayJetScreen(
                     exoPlayer.playWhenReady = !exoPlayer.playWhenReady
                 } finally {
                     PlayerCommandBus.notifyStateChanged()
-                    // Some launchers refresh PiP actions a tick later; send a follow-up update
-                    scope.launch {
-                        delay(120)
-                        PlayerCommandBus.notifyStateChanged()
-                    }
+                    
                 }
             },
             next = {
@@ -365,15 +385,16 @@ fun ExoPlayJetScreen(
                     }
                 }
             },
-            // Use ExoPlayer.isPlaying so PiP icon matches actual playback (pause shows Play icon, play shows Pause icon)
             isPlaying = { exoPlayer.isPlaying }
         )
         PlayerCommandBus.setOnStopPlayback {
             try {
+                exoPlayerView?.player = null
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
                 exoPlayer.playWhenReady = false
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping playback from command bus", e)
             }
         }
         onDispose {
@@ -382,28 +403,32 @@ fun ExoPlayJetScreen(
         }
     }
 
-    // Respond to external switch requests (e.g., when a new channel is picked while in PiP)
     DisposableEffect(Unit) {
         PlayerCommandBus.setOnSwitchRequest { url, index ->
             try {
-                var targetUrl: String? = null
+                var found = false
                 if (index != null && !channelList.isNullOrEmpty() && index in channelList.indices) {
-                    // Index switch has priority
-                    currentIndex = index
-                    targetUrl = channelList[index].videoUrl
+                    currentIndex = index 
+                    found = true
                 } else if (!url.isNullOrEmpty()) {
-                    targetUrl = url
-                    // If list contains this item, also advance the index to keep UI in sync
                     val foundIdx = channelList?.indexOfFirst { it.videoUrl == url } ?: -1
-                    if (foundIdx >= 0) currentIndex = foundIdx
+                    if (foundIdx >= 0) {
+                        currentIndex = foundIdx
+                        found = true
+                    }
                 }
-                if (!targetUrl.isNullOrEmpty()) {
-                    val mediaItem = MediaItem.fromUri(targetUrl.toUri())
+
+                
+                if (!found && !url.isNullOrEmpty()) {
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    val mediaItem = buildMediaItem(url, url)
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
                     exoPlayer.playWhenReady = true
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "Error switching channel request", e)
             }
         }
         onDispose { PlayerCommandBus.setOnSwitchRequest(null) }
@@ -424,25 +449,21 @@ fun ExoPlayJetScreen(
         }
     }
 
-    // Back-to-PiP: pressing Back enters PiP (YouTube-like); fallback to finish if PiP unsupported
     BackHandler {
         when {
             showChannelPanel -> {
-
                 showChannelPanel = false
             }
-
             isControllerVisible -> {
-
                 exoPlayerView?.hideController()
             }
-
             else -> {
                 val act = (context as? Activity)
                 val pm = context.packageManager
                 val supportsPip = try {
                     pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error checking PiP feature", e)
                     false
                 }
                 if (!isTv && supportsPip && pipEnabled) {
@@ -452,7 +473,8 @@ fun ExoPlayJetScreen(
                             .setAspectRatio(android.util.Rational(16, 9))
                             .build()
                         act?.enterPictureInPictureMode(params)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to enter Picture-in-Picture mode", e)
                         act?.finish()
                     }
                 } else {
@@ -566,8 +588,6 @@ fun ExoPlayJetScreen(
                     onChannelChange = { currentIndex = it }
                 )
             }
-
-
     ) {
         val currentResizeMode = resizeModes[resizeModeIndex].first
         val isDefaultMode = resizeModeIndex == 0
@@ -595,14 +615,12 @@ fun ExoPlayJetScreen(
                         }
                     )
 
-                    // Inject resize btn
                     post {
                         try {
                             val controller =
                                 findViewById<View>(androidx.media3.ui.R.id.exo_controller) as? ViewGroup
                                     ?: return@post
 
-                            //---
                             val nextBtn = controller.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_next)
                             val prevBtn = controller.findViewById<ImageButton>(androidx.media3.ui.R.id.exo_prev)
 
@@ -613,7 +631,6 @@ fun ExoPlayJetScreen(
                             nextBtn?.isEnabled = true
                             prevBtn?.isEnabled = true
 
-
                             nextBtn?.setOnClickListener {
                                 try {
                                     val intent = Intent(context, PipActionReceiver::class.java).apply {
@@ -621,7 +638,7 @@ fun ExoPlayJetScreen(
                                     }
                                     context.sendBroadcast(intent)
                                 } catch (e: Exception) {
-                                    Log.e("ExoCustom", "Failed to send NEXT: ${e.message}")
+                                    Log.e("ExoCustom", "Failed to send NEXT", e)
                                 }
                             }
 
@@ -632,12 +649,12 @@ fun ExoPlayJetScreen(
                                     }
                                     context.sendBroadcast(intent)
                                 } catch (e: Exception) {
-                                    Log.e("ExoCustom", "Failed to send PREV: ${e.message}")
+                                    Log.e("ExoCustom", "Failed to send PREV", e)
                                 }
                             }
 
                             Log.d("ExoCustom", "ExoPlayer next/prev hooked to PipActionReceiver")
-                            //---
+
                             var targetBar: ViewGroup? = null
                             val candidateIds = listOf(
                                 androidx.media3.ui.R.id.exo_basic_controls,
@@ -665,16 +682,17 @@ fun ExoPlayJetScreen(
                                 targetBar = deepest(controller)
                             }
 
-                            // PiP button (left of resize) — phones/tablets only
                             val isTV = try {
                                 val pm = context.packageManager
                                 pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error checking leanback feature for UI", e)
                                 false
                             }
                             val supportsPip = try {
                                 (context as? Activity)?.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) == true
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error checking PIP feature for UI", e)
                                 false
                             }
 
@@ -688,7 +706,6 @@ fun ExoPlayJetScreen(
                                 setOnClickListener {
                                     try {
                                         (context as? Activity)?.let { act ->
-                                            // Mark entering PiP so onPause doesn't pause playback
                                             PlayerCommandBus.isEnteringPip = true
                                             val params =
                                                 android.app.PictureInPictureParams.Builder()
@@ -697,7 +714,7 @@ fun ExoPlayJetScreen(
                                             act.enterPictureInPictureMode(params)
                                         }
                                     } catch (e: Exception) {
-                                        Log.w(TAG, "Failed PiP enter: ${e.message}")
+                                        Log.w(TAG, "Failed PiP enter: ${e.message}", e)
                                     }
                                 }
                                 val params = LinearLayout.LayoutParams(
@@ -741,39 +758,27 @@ fun ExoPlayJetScreen(
                             val insertIndex = if (count > 0) count - 1 else count
                             if (!isTv && !isTV && supportsPip && pipEnabled) {
                                 try {
-                                    // Add PiP first, then resize so PiP sits left of resize
                                     targetBar.addView(pipButton, insertIndex)
-                                } catch (_: Exception) {
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to insert PIP button at index", e)
                                     targetBar.addView(pipButton)
                                 }
                             }
                             try {
                                 targetBar.addView(resizeButton, insertIndex + 1)
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to insert Resize button at index", e)
                                 targetBar.addView(resizeButton)
                             }
 
                             hookExoControllerButtons(findViewById(R.id.player_view),context)
                         } catch (e: Exception) {
-                            Log.w(TAG, "Failed to position resize button: ${e.message}")
+                            Log.w(TAG, "Failed to position custom player buttons", e)
                         }
                     }
                 }
             },
-            modifier = when {
-                currentResizeMode == RESIZE_MODE_FILL -> Modifier
-                    .fillMaxSize()
-                    .align(Alignment.Center)
-
-                isDefaultMode -> Modifier
-                    .aspectRatio(16f / 9f)
-                    .align(Alignment.Center)
-
-                else -> Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(aspectForModifier)
-                    .align(Alignment.Center)
-            }
+            modifier = Modifier.fillMaxSize()
         )
 
         if (isBuffering) {
@@ -792,7 +797,6 @@ fun ExoPlayJetScreen(
             }
         }
 
-        // When PiP mode changes, immediately hide controllers/overlays
         DisposableEffect(Unit) {
             PlayerCommandBus.setOnPipModeChanged { isPip ->
                 if (isPip) {
@@ -801,12 +805,14 @@ fun ExoPlayJetScreen(
                         isControllerVisible = false
                         exoPlayerView?.useController = false
                         exoPlayerView?.hideController()
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating UI on enter PIP", e)
                     }
                 } else {
                     try {
                         exoPlayerView?.useController = true
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating UI on exit PIP", e)
                     }
                 }
             }
@@ -824,6 +830,10 @@ fun ExoPlayJetScreen(
             enter = fadeIn(),
             exit = fadeOut()
         ) {
+            val currentChannel = channelList?.getOrNull(currentIndex)
+            val currentChannelId = currentChannel?.let { extractChannelIdFromPlayUrl(it.videoUrl) }
+            val currentProgramName = epgCache[currentChannelId]?.second
+
             ChannelInfoOverlay(
                 channelList = channelList,
                 currentIndex = currentIndex,
@@ -834,7 +844,6 @@ fun ExoPlayJetScreen(
             )
         }
 
-        // --- Key Num Config ---
         if (!PlayerCommandBus.isInPipMode && showNumericOverlay && numericBuffer.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -889,7 +898,6 @@ fun ExoPlayJetScreen(
             }
         }
 
-        // Left-side channel panel
         if (showChannelPanel && channelList != null) {
             Box(
                 modifier = Modifier
@@ -964,23 +972,13 @@ fun ExoPlayJetScreen(
         }
     }
 
-    // Also handle direct video URL changes (e.g., new intent while in PiP with no channel list/index)
-    LaunchedEffect(videoUrl) {
-        if (channelList.isNullOrEmpty() || currentIndex < 0) {
-            val url = channelList?.getOrNull(currentIndex)?.videoUrl ?: videoUrl
-            exoPlayer.setMediaItem(MediaItem.fromUri(url.toUri()))
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
-        }
-    }
-
-    // Clear sentinel on leaving the player so future autoplay sessions can trigger again
     DisposableEffect(Unit) {
         onDispose {
             try {
                 preferenceManager.myPrefs.currChannelUrl = ""
                 preferenceManager.savePreferences()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving shared preferences on dispose", e)
             }
         }
     }
@@ -1005,12 +1003,9 @@ fun EpgText(
     }
 }
 
-
 suspend fun fetchCurrentProgram(basefinURL: String, channelId: String): String? {
     val epgURLc = "$basefinURL/epg/${channelId}/0"
-//    Log.d("NANOdix1", epgURLc)
     val epgData = ChannelUtils.fetchEpg(epgURLc)
-//    Log.d(TAG, "Now playing: ${epgData?.showname}")
     return epgData?.showname
 }
 
@@ -1032,7 +1027,6 @@ fun ChannelInfoOverlay(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Logo
                         Card(
                             modifier = Modifier.size(60.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -1058,7 +1052,6 @@ fun ChannelInfoOverlay(
                         Spacer(modifier = Modifier.width(10.dp))
 
                         Column {
-                            // Channel Number + Name
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = String.format("%02d", currentIndex + 1),
@@ -1148,54 +1141,87 @@ fun getCurrentFormattedTime(): String {
 @UnstableApi
 fun initializePlayer(
     getCurrentVideoUrl: () -> String,
+    getCurrentKeyUrl: () -> String,
     context: Context,
     retryCountRef: MutableState<Int>,
     localPort: Int,
     onError: (String) -> Unit
 ): ExoPlayer {
+
     val httpDataSourceFactory = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
-//        .setUserAgent(userAgent) //Future Ref
-    val mediaSourceFactory =
-        DefaultMediaSourceFactory(context).setDataSourceFactory(httpDataSourceFactory)
+        .setConnectTimeoutMs(8000)
+        .setReadTimeoutMs(8000)
 
-    val player = ExoPlayer.Builder(context).setMediaSourceFactory(mediaSourceFactory).build()
-    var resumePosition: Long
+    val renderersFactory = DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+
+    val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            25000,
+            50000,
+            1500,
+            2500
+        ).build()
+
+    val player = ExoPlayer.Builder(context, renderersFactory)
+        .setLoadControl(loadControl)
+        .build()
+
+    var useDrmFallback = false
+    val maxRetries = 2
     retryCountRef.value = 0
 
     fun prepareAndPlay(seekToPosition: Long = 0L) {
-        val mediaItem = MediaItem.Builder()
-            .setUri(getCurrentVideoUrl().toUri())
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .build()
-        player.setMediaItem(mediaItem)
+        val originalUrl = getCurrentVideoUrl()
+        val originalKeyUrl = getCurrentKeyUrl()
+
+        val mediaItem = buildMediaItem(originalUrl, originalKeyUrl)
+        val mediaSourceFactory = createL3MediaSourceFactory(context, originalKeyUrl)
+
+        player.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem))
         player.prepare()
+
         if (seekToPosition > 0L) {
             player.seekTo(seekToPosition)
         }
         player.playWhenReady = true
     }
 
-    prepareAndPlay()
-
     player.addListener(object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            val currentPosition = player.currentPosition
             val currentUrl = getCurrentVideoUrl()
             val portIdentifier = ":$localPort"
 
-            if (currentUrl.contains(portIdentifier) && retryCountRef.value >= 1) {
-                Log.d(TAG, "Local server playback failed twice, switching to WebView")
+            if (!useDrmFallback) {
+                Log.w(TAG, "Standard playback failed. Switching to DRM MPD playback. Error: ${error.message}")
+                useDrmFallback = true
+                retryCountRef.value = 0
+                player.stop()
+                prepareAndPlay(currentPosition)
+                return
+            }
 
-                val formattedUrl = currentUrl
-                    .replace(".m3u8", "", ignoreCase = true)
-                    .replace("/live/", "/mpd/", ignoreCase = true)
-
-                Log.d(TAG, "Sending formatted URL to WebView: $formattedUrl")
-                onError(formattedUrl)
+            if (retryCountRef.value >= maxRetries) {
+                if (currentUrl.contains(portIdentifier)) {
+                    Log.e(TAG, "DRM playback failed $maxRetries times, delegating to WebView.")
+                    val formattedUrl = currentUrl
+                        .replace(".m3u8", "", ignoreCase = true)
+                        .replace("/live/", "/mpd/", ignoreCase = true)
+                    onError(formattedUrl)
+                } else {
+                    Log.e(TAG, "External playback failed completely after $maxRetries retries.")
+                }
             } else {
                 retryCountRef.value++
+                val delayTimeMs = (1000L * 2.0.pow(retryCountRef.value.toDouble())).toLong()
+                Log.w(TAG, "DRM Playback error. Retrying attempt ${retryCountRef.value}/$maxRetries in ${delayTimeMs}ms...")
+
                 player.stop()
-                prepareAndPlay(player.currentPosition)
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    prepareAndPlay(currentPosition)
+                }, delayTimeMs)
             }
         }
     })
@@ -1216,20 +1242,14 @@ fun handleTVRemoteKey(
     val newIndex = when (tvNAV) {
         "0" -> when (event.key) {
             Key.ChannelUp -> (currentIndex + 1) % (channelList?.size ?: return false)
-            Key.ChannelDown -> if (currentIndex - 1 < 0) (channelList?.size
-                ?: 1) - 1 else currentIndex - 1
-
+            Key.ChannelDown -> if (currentIndex - 1 < 0) (channelList?.size ?: 1) - 1 else currentIndex - 1
             else -> return false
         }
-
         "1" -> when (event.key) {
             Key.DirectionUp -> (currentIndex + 1) % (channelList?.size ?: return false)
-            Key.DirectionDown -> if (currentIndex - 1 < 0) (channelList?.size
-                ?: 1) - 1 else currentIndex - 1
-
+            Key.DirectionDown -> if (currentIndex - 1 < 0) (channelList?.size ?: 1) - 1 else currentIndex - 1
             else -> return false
         }
-
         else -> return false
     }
 
@@ -1241,11 +1261,54 @@ private fun hookExoControllerButtons(playerView: PlayerView, context: Context) {
     playerView.post {
         try {
             val controller = playerView.findViewById<ViewGroup>(androidx.media3.ui.R.id.exo_controller) ?: return@post
-
-
-
         } catch (e: Exception) {
             Log.e("ExoCustom", "Failed to hook Exo buttons: ${e.message}")
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+fun createL3MediaSourceFactory(
+    context: Context,
+    licenseUrl: String,
+    userAgent: String = "ExoPlayer",
+    headers: Map<String, String> = emptyMap()
+): DefaultMediaSourceFactory {
+
+    val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        .setUserAgent(userAgent)
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(8000)
+        .setReadTimeoutMs(8000)
+        .setDefaultRequestProperties(headers)
+
+    val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+    val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
+
+    val drmSessionManager = DefaultDrmSessionManager.Builder()
+        .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
+            FrameworkMediaDrm.newInstance(uuid).apply {
+                setPropertyString("securityLevel", "L3")
+            }
+        }
+        .build(drmCallback)
+
+    return DefaultMediaSourceFactory(context)
+        .setDataSourceFactory(dataSourceFactory)
+        .setDrmSessionManagerProvider { drmSessionManager }
+}
+
+@UnstableApi
+fun buildMediaItem(videoUrl: String, keyUrl: String?): MediaItem {
+    Log.d(TAG, "Building Stream URL: $videoUrl | DRM Key: $keyUrl")
+
+    return MediaItem.Builder()
+        .setUri(videoUrl.toUri())
+        .setMimeType(MimeTypes.APPLICATION_MPD)
+        .setDrmConfiguration(
+            MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
+                .setLicenseUri(keyUrl ?: "")
+                .build()
+        )
+        .build()
 }

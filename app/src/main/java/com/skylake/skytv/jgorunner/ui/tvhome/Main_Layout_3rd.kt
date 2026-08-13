@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,13 +50,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.activities.ChannelInfo
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.services.CastManager
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
+import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
 import com.skylake.skytv.jgorunner.ui.screens.restartAppV1
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
@@ -76,6 +80,10 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
     val epgDebugVar by remember { mutableStateOf(preferenceManager.myPrefs.epgDebug) }
 
     var showDialog by remember { mutableStateOf(false) }
+    val tvViewModel: TvViewModel = viewModel()
+    val favoriteChannels by tvViewModel.favoriteChannels.collectAsState()
+    val favoriteUrls = remember(favoriteChannels) { favoriteChannels.map { it.channel_url }.toSet() }
+
 
     var selectedCategories2 by remember {
         mutableStateOf(preferenceManager.myPrefs.lastSelectedCategoriesExp?.let {
@@ -146,7 +154,7 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                     "channel_list_data",
                     ArrayList(
                         filteredChannels.map { ch ->
-                            ChannelInfo(ch.url, ch.logo ?: "", ch.name)
+                            ChannelInfo(ch.url, "", ch.logo ?: "", ch.name)
                         }
                     )
                 )
@@ -350,12 +358,31 @@ fun Main_Layout_3rd(context: Context, reloadTrigger: Int) {
                 } else {
                     // Empty
                 }
-                ChannelGridTV(
-                    context = context,
-                    channels = filteredChannels,
-                    onSelectedChannelChanged = { channel -> selectedChannel = channel }
-                )
 
+                ChannelGridTV(
+                    channels = filteredChannels,
+                    favoriteUrls = favoriteUrls,
+                    onSelectedChannelChanged = { channel -> selectedChannel = channel },
+                    onChannelClick = { channel, index ->
+                        if (CastManager.isConnecting.value) return@ChannelGridTV
+
+                        val channelInfoList = ArrayList(filteredChannels.map {
+                            ChannelInfo(it.url, "",it.logo ?: "", it.name)
+                        })
+                        val intent = Intent(context, ExoPlayJet::class.java).apply {
+                            putParcelableArrayListExtra("channel_list_data", channelInfoList)
+                            putExtra("current_channel_index", index)
+                            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                        tvViewModel.saveM3UToRecents(channel)
+                    },
+                    onChannelLongClick = { channel ->
+                        tvViewModel.toggleFavoriteM3U(channel)
+                        Toast.makeText(context, "${channel.name} favorites updated", Toast.LENGTH_SHORT).show()
+                    }
+                )
             }
         }
     }

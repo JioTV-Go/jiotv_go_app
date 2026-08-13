@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,8 +56,10 @@ import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
 import com.skylake.skytv.jgorunner.ui.tvhome.M3UChannelExp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @SuppressLint("MutableCollectionMutableState")
 @Composable
@@ -75,44 +78,52 @@ fun TvScreenMenu(
 ) {
     if (!showDialog) return
 
-    val preferenceManager = SkySharedPref.getInstance(context)
+    val preferenceManager = remember { SkySharedPref.getInstance(context) }
+    val coroutineScope = rememberCoroutineScope()
+
     var showCustomUrlInputDialog by remember { mutableStateOf(false) }
     var customUrl by remember { mutableStateOf(preferenceManager.myPrefs.custURL ?: "") }
-    var showRecentTab by remember { mutableStateOf(preferenceManager.myPrefs.showRecentTab) }
+    var showAllTabs by remember { mutableStateOf(preferenceManager.myPrefs.showAllTabs) }
+    
+    var showEpg by remember { mutableStateOf(preferenceManager.myPrefs.showEPG) }
+
     var startTvAutomatically by remember { mutableStateOf(preferenceManager.myPrefs.startTvAutomatically) }
     var startTvAutoDelay by remember { mutableStateOf(preferenceManager.myPrefs.startTvAutoDelay) }
     var startTvAutoDelayTime by remember { mutableIntStateOf(preferenceManager.myPrefs.startTvAutoDelayTime) }
+
     val focusRequester = remember { FocusRequester() }
     var showProcessingDialog by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
 
     // State for playlist selection
-    var showPlaylist by remember {
-        mutableStateOf(preferenceManager.myPrefs.showPLAYLIST)
-    }
+    var showPlaylist by remember { mutableStateOf(preferenceManager.myPrefs.showPLAYLIST) }
 
     var selectedCategories2 by remember {
-        mutableStateOf(preferenceManager.myPrefs.lastSelectedCategoriesExp?.let {
-            Gson().fromJson(it, object : TypeToken<List<String>>() {}.type)
-        } ?: listOf("All")
+        mutableStateOf(
+            preferenceManager.myPrefs.lastSelectedCategoriesExp?.let {
+                Gson().fromJson(it, object : TypeToken<List<String>>() {}.type)
+            } ?: listOf("All")
         )
     }
+
     var categories by remember { mutableStateOf<List<M3UChannelExp>>(emptyList()) }
 
-    try {
-        val json = preferenceManager.myPrefs.channelListJson
-        if (!json.isNullOrBlank()) {
-            val type = object : TypeToken<List<M3UChannelExp>>() {}.type
-            val channels: List<M3UChannelExp> = Gson().fromJson(json, type)
-            categories = channels.distinctBy { it.url }
-        } else {
-            selectedCategories2 = listOf("All")
+    // PERFORMANCE FIX: Offload JSON parsing to a background thread when dialog opens
+    LaunchedEffect(showDialog) {
+        if (showDialog) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val json = preferenceManager.myPrefs.channelListJson
+                    if (!json.isNullOrBlank()) {
+                        val type = object : TypeToken<List<M3UChannelExp>>() {}.type
+                        val channels: List<M3UChannelExp> = Gson().fromJson(json, type)
+                        categories = channels.distinctBy { it.url }
+                    }
+                } catch (e: Exception) {
+                    Log.e("TvScreenMenu", "Failed to parse channels for menu", e)
+                }
+            }
         }
-    } catch (_: Exception) {
-        selectedCategories2 = listOf("All")
     }
-
-
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -138,17 +149,17 @@ fun TvScreenMenu(
                 var selectedQuality by remember {
                     mutableStateOf(preferenceManager.myPrefs.filterQX ?: "auto")
                 }
-                val qualityMap = mapOf(
-                    "Auto" to "auto",
-                    "High" to "high",
-                    "Medium" to "medium",
-                    "Low" to "low"
-                )
-                val qualityOptions = qualityMap.keys.toList()
+                val qualityMap = remember {
+                    mapOf(
+                        "Auto" to "auto",
+                        "High" to "high",
+                        "Medium" to "medium",
+                        "Low" to "low"
+                    )
+                }
+                val qualityOptions = remember { qualityMap.keys.toList() }
                 var qualityDropdownExpanded by remember { mutableStateOf(false) }
-                val selectedQualityLabel =
-                    qualityMap.entries.find { it.value == selectedQuality }?.key
-                        ?: qualityOptions[0]
+                val selectedQualityLabel = qualityMap.entries.find { it.value == selectedQuality }?.key ?: qualityOptions[0]
 
                 if (showPlaylist) {
                     DropdownSelection2(
@@ -161,26 +172,25 @@ fun TvScreenMenu(
                         expanded = qualityDropdownExpanded,
                         onExpandChange = { qualityDropdownExpanded = it }
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // --- TV Start Page Selection  ---
-                val startScreenTV = mapOf(
-                    "All Channels" to 0,
-                    "Recent Channels" to 1
-                )
-                val startOptionsTV = startScreenTV.keys.toList()
-                var selectedScreenTV by remember {
-                    mutableIntStateOf(
-                        preferenceManager.myPrefs.selectedScreenTV?.toIntOrNull() ?: 0
+                val startScreenTV = remember {
+                    mapOf(
+                        "All Channels" to 0,
+                        "Favourite" to 1
+//                        "Recent Channels" to 2
                     )
                 }
+                val startOptionsTV = remember { startScreenTV.keys.toList() }
+                var selectedScreenTV by remember {
+                    mutableIntStateOf(preferenceManager.myPrefs.selectedScreenTV?.toIntOrNull() ?: 0)
+                }
                 var screenDropdownExpanded by remember { mutableStateOf(false) }
-                val selectedScreenLabel =
-                    startScreenTV.entries.find { it.value == selectedScreenTV }?.key
-                        ?: startOptionsTV[0]
-                if (showRecentTab) {
+                val selectedScreenLabel = startScreenTV.entries.find { it.value == selectedScreenTV }?.key ?: startOptionsTV[0]
+
+                if (showAllTabs) {
                     DropdownSelection2(
                         title = "Select TV start page",
                         options = startOptionsTV,
@@ -191,27 +201,25 @@ fun TvScreenMenu(
                         expanded = screenDropdownExpanded,
                         onExpandChange = { screenDropdownExpanded = it }
                     )
-
-
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // --- TV Remote Navigation Configuration ---
-                val tvRemoteNavigationOptions = mapOf(
-                    "Channel Up / Channel Down" to 0,
-                    "Remote Up / Remote Down" to 1,
-                    "Disable" to -1,
-                )
-                val tvRemoteNavigationLabels = tvRemoteNavigationOptions.keys.toList()
-                var selectedTvRemoteNavOption by remember {
-                    mutableIntStateOf(
-                        preferenceManager.myPrefs.selectedRemoteNavTV?.toIntOrNull() ?: 0
+                val tvRemoteNavigationOptions = remember {
+                    mapOf(
+                        "Channel Up / Channel Down" to 0,
+                        "Remote Up / Remote Down" to 1,
+                        "Disable" to -1,
                     )
+                }
+                val tvRemoteNavigationLabels = remember { tvRemoteNavigationOptions.keys.toList() }
+                var selectedTvRemoteNavOption by remember {
+                    mutableIntStateOf(preferenceManager.myPrefs.selectedRemoteNavTV?.toIntOrNull() ?: 0)
                 }
                 var isTvRemoteNavDropdownExpanded by remember { mutableStateOf(false) }
                 val selectedTvRemoteNavLabel = tvRemoteNavigationOptions.entries
-                    .find { it.value == selectedTvRemoteNavOption }
-                    ?.key ?: tvRemoteNavigationLabels[0]
+                    .find { it.value == selectedTvRemoteNavOption }?.key ?: tvRemoteNavigationLabels[0]
+
                 DropdownSelection2(
                     title = "Select Channel change keys",
                     options = tvRemoteNavigationLabels,
@@ -220,19 +228,21 @@ fun TvScreenMenu(
                         selectedTvRemoteNavOption = tvRemoteNavigationOptions[label] ?: 0
                     },
                     expanded = isTvRemoteNavDropdownExpanded,
-                    onExpandChange = { isExpanded -> isTvRemoteNavDropdownExpanded = isExpanded }
+                    onExpandChange = { isTvRemoteNavDropdownExpanded = it }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // --- Category Selection ---
-                val categoryMap = mapOf(
-                    "All Categories" to null, "Entertainment" to 5, "Movies" to 6, "Kids" to 7,
-                    "Sports" to 8, "Lifestyle" to 9, "Infotainment" to 10, "News" to 12,
-                    "Music" to 13, "Devotional" to 15, "Business" to 16, "Educational" to 17,
-                    "Shopping" to 18, "JioDarshan" to 19
-                )
-                val categoryOptions = categoryMap.keys.toList()
+                val categoryMap = remember {
+                    mapOf(
+                        "All Categories" to null, "Entertainment" to 5, "Movies" to 6, "Kids" to 7,
+                        "Sports" to 8, "Lifestyle" to 9, "Infotainment" to 10, "News" to 12,
+                        "Music" to 13, "Devotional" to 15, "Business" to 16, "Educational" to 17,
+                        "Shopping" to 18, "JioDarshan" to 19
+                    )
+                }
+                val categoryOptions = remember { categoryMap.keys.toList() }
                 val selectedCategoryInts = remember {
                     mutableStateOf(
                         preferenceManager.myPrefs.filterCI?.split(",")
@@ -251,11 +261,7 @@ fun TvScreenMenu(
 
                 if (showPlaylist) {
                     Column {
-                        Text(
-                            text = "Select Categories",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(text = "Select Categories", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
                                 onClick = { showCategoryCheckboxes = true },
@@ -283,30 +289,22 @@ fun TvScreenMenu(
                                         selectedOptions = selectedCategories.value,
                                         onOptionsSelected = { names ->
                                             selectedCategories.value = names.toMutableList()
-                                            selectedCategoryInts.value =
-                                                names.mapNotNull { categoryMap[it] }.toMutableList()
+                                            selectedCategoryInts.value = names.mapNotNull { categoryMap[it] }.toMutableList()
                                         }
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
                                         onClick = { showCategoryCheckboxes = false },
                                         modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("Done")
-                                    }
+                                    ) { Text("Done") }
                                 }
                             }
                         }
                     }
-
                     Spacer(modifier = Modifier.height(8.dp))
                 } else {
                     Column {
-                        Text(
-                            text = "Select Categories",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(text = "Select Categories", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
                                 onClick = { showCategoryCheckboxes2 = true },
@@ -334,49 +332,35 @@ fun TvScreenMenu(
                                         selectedOptions = selectedCategories2,
                                         onOptionsSelected = { newSelection ->
                                             selectedCategories2 = newSelection
-
-                                            preferenceManager.myPrefs.lastSelectedCategoriesExp =
-                                                Gson().toJson(newSelection)
-                                            preferenceManager.savePreferences()
+                                            coroutineScope.launch(Dispatchers.IO) {
+                                                preferenceManager.myPrefs.lastSelectedCategoriesExp = Gson().toJson(newSelection)
+                                                preferenceManager.savePreferences()
+                                            }
                                         }
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
                                         onClick = { showCategoryCheckboxes2 = false },
                                         modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("Done")
-                                    }
+                                    ) { Text("Done") }
                                 }
                             }
                         }
                     }
-
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // --- Language Selection ---
-                val languageMap = mapOf(
-                    "All Languages" to null,
-                    "Hindi" to 1,
-                    "Marathi" to 2,
-                    "Punjabi" to 3,
-                    "Urdu" to 4,
-                    "Bengali" to 5,
-                    "English" to 6,
-                    "Malayalam" to 7,
-                    "Tamil" to 8,
-                    "Gujarati" to 9,
-                    "Odia" to 10,
-                    "Telugu" to 11,
-                    "Bhojpuri" to 12,
-                    "Kannada" to 13,
-                    "Assamese" to 14,
-                    "Nepali" to 15,
-                    "French" to 16,
-                    "Other" to 18
-                )
-                val languageOptions = languageMap.keys.toList()
+                val languageMap = remember {
+                    mapOf(
+                        "All Languages" to null, "Hindi" to 1, "Marathi" to 2, "Punjabi" to 3,
+                        "Urdu" to 4, "Bengali" to 5, "English" to 6, "Malayalam" to 7,
+                        "Tamil" to 8, "Gujarati" to 9, "Odia" to 10, "Telugu" to 11,
+                        "Bhojpuri" to 12, "Kannada" to 13, "Assamese" to 14, "Nepali" to 15,
+                        "French" to 16, "Other" to 18
+                    )
+                }
+                val languageOptions = remember { languageMap.keys.toList() }
                 val selectedLanguageInts = remember {
                     mutableStateOf(
                         preferenceManager.myPrefs.filterLI?.split(",")
@@ -394,11 +378,7 @@ fun TvScreenMenu(
 
                 if (showPlaylist) {
                     Column {
-                        Text(
-                            text = "Select Languages",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Text(text = "Select Languages", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Box(modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(
                                 onClick = { showLanguageCheckboxes = true },
@@ -426,22 +406,18 @@ fun TvScreenMenu(
                                         selectedOptions = selectedLanguages.value,
                                         onOptionsSelected = { names ->
                                             selectedLanguages.value = names.toMutableList()
-                                            selectedLanguageInts.value =
-                                                names.mapNotNull { languageMap[it] }.toMutableList()
+                                            selectedLanguageInts.value = names.mapNotNull { languageMap[it] }.toMutableList()
                                         }
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(
                                         onClick = { showLanguageCheckboxes = false },
                                         modifier = Modifier.align(Alignment.End)
-                                    ) {
-                                        Text("Done")
-                                    }
+                                    ) { Text("Done") }
                                 }
                             }
                         }
                     }
-
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
@@ -459,7 +435,6 @@ fun TvScreenMenu(
                             }
                         }
                     }
-
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // --- Playlist Selection Dropdown ---
@@ -467,6 +442,7 @@ fun TvScreenMenu(
                     val customUrlFilename = preferenceManager.myPrefs.custURL
                         ?.substringAfterLast('/')
                         ?.takeIf { it.isNotBlank() } ?: "Custom Playlist"
+
                     val playlistOptions = listOf("JioTVGO", customUrlFilename)
                     val selectedPlaylistLabel = if (showPlaylist) "JioTVGO" else customUrlFilename
 
@@ -474,111 +450,42 @@ fun TvScreenMenu(
                         title = "Select Playlist",
                         options = playlistOptions,
                         selectedOption = selectedPlaylistLabel,
-                        onOptionSelected = { label ->
-                            showPlaylist = (label == "JioTVGO")
-                        },
+                        onOptionSelected = { label -> showPlaylist = (label == "JioTVGO") },
                         expanded = playlistDropdownExpanded,
                         onExpandChange = { playlistDropdownExpanded = it }
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-///////////////////////////////
+
                 if (showPlaylist) {
+                    // Show TABs Checkbox
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Checkbox(
-                            checked = showRecentTab,
-                            onCheckedChange = { checked ->
-                                showRecentTab = checked
-                            }
-                        )
+                        Checkbox(checked = showAllTabs, onCheckedChange = { showAllTabs = it })
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Show Recent Channels")
+                        Text(text = "Show TABs")
+                    }
+
+                   Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(checked = showEpg, onCheckedChange = { showEpg = it })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Show EPG")
                     }
                 }
-
-///////////////////////////////
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Checkbox(
-                        checked = startTvAutomatically,
-                        onCheckedChange = { checked ->
-                            startTvAutomatically = checked
-                        }
-                    )
+                    Checkbox(checked = startTvAutomatically, onCheckedChange = { startTvAutomatically = it })
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Auto play channel")
+                    Text(text = "Auto Play Channel")
                 }
-
-                if (false) {
-                    if (startTvAutomatically) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Checkbox(
-                                checked = startTvAutoDelay,
-                                onCheckedChange = { checked ->
-                                    startTvAutoDelay = checked
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "Play everytime /w delay")
-                        }
-                    }
-
-                    if (startTvAutoDelay) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Slider(
-                                value = startTvAutoDelayTime.toFloat(),
-                                onValueChange = { startTvAutoDelayTime = it.toInt() },
-                                valueRange = 2f..10f,
-                                steps = 3,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .focusRequester(focusRequester)
-                                    .focusable()
-                                    .onKeyEvent { event ->
-                                        when (event.nativeKeyEvent.keyCode) {
-                                            Key.DirectionRight.nativeKeyCode -> {
-                                                startTvAutoDelayTime =
-                                                    (startTvAutoDelayTime + 2).coerceAtMost(10)
-                                                true
-                                            }
-
-                                            Key.DirectionLeft.nativeKeyCode -> {
-                                                startTvAutoDelayTime =
-                                                    (startTvAutoDelayTime - 2).coerceAtLeast(2)
-                                                true
-                                            }
-
-                                            else -> false
-                                        }
-                                    }
-                            )
-
-
-                        }
-                        Text(
-                            text = "Delay: $startTvAutoDelayTime seconds",
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                //////////////////////////////////////
-
 
                 if (showCustomUrlInputDialog) {
                     Dialog(onDismissRequest = { showCustomUrlInputDialog = false }) {
@@ -591,11 +498,7 @@ fun TvScreenMenu(
                                 modifier = Modifier.padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(
-                                    "Enter Playlist URL",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
-                                )
+                                Text("Enter Playlist URL", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedTextField(
                                     value = customUrl,
@@ -607,18 +510,14 @@ fun TvScreenMenu(
                                         if (customUrl.startsWith("http")) {
                                             showProcessingDialog = true
                                             showCustomUrlInputDialog = false
-                                            coroutineScope.launch {
+                                            coroutineScope.launch(Dispatchers.IO) {
                                                 preferenceManager.myPrefs.custURL = customUrl
                                                 preferenceManager.savePreferences()
                                                 delay(2000)
                                                 showProcessingDialog = false
                                             }
                                         } else {
-                                            Toast.makeText(
-                                                context,
-                                                "Enter correct URL for playlist [m3u]",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            Toast.makeText(context, "Enter correct URL for playlist [m3u]", Toast.LENGTH_SHORT).show()
                                         }
                                     })
                                 )
@@ -627,14 +526,12 @@ fun TvScreenMenu(
                                     horizontalArrangement = Arrangement.End,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    TextButton(onClick = {
-                                        showCustomUrlInputDialog = false
-                                    }) { Text("Cancel") }
+                                    TextButton(onClick = { showCustomUrlInputDialog = false }) { Text("Cancel") }
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Button(onClick = {
                                         showProcessingDialog = true
                                         showCustomUrlInputDialog = false
-                                        coroutineScope.launch {
+                                        coroutineScope.launch(Dispatchers.IO) {
                                             preferenceManager.myPrefs.custURL = customUrl
                                             preferenceManager.savePreferences()
                                             delay(2000)
@@ -648,15 +545,9 @@ fun TvScreenMenu(
                 }
 
                 if (showProcessingDialog) {
-                    Log.d("DIXc", "inpro")
                     ProcessingDialogExp(
                         context = context,
-                        onComplete = { channelList ->
-                            Log.d(
-                                "TVDialog",
-                                "Loaded ${channelList.size} channels"
-                            )
-                        },
+                        onComplete = { channelList -> Log.d("TVDialog", "Loaded ${channelList.size} channels") },
                         onError = { errorMessage -> Log.d("TVDialog", "Error: $errorMessage") }
                     )
                 }
@@ -666,10 +557,9 @@ fun TvScreenMenu(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
-                        onClick = onDismiss,
-                        shape = MaterialTheme.shapes.medium
-                    ) { Text("Cancel") }
+                    Button(onClick = onDismiss, shape = MaterialTheme.shapes.medium) { Text("Cancel") }
+
+                    // Reset Button
                     Button(
                         onClick = {
                             selectedQuality = "auto"
@@ -679,56 +569,73 @@ fun TvScreenMenu(
                             selectedCategoryInts.value.clear()
                             selectedLanguages.value.clear()
                             selectedLanguageInts.value.clear()
-                            showPlaylist = false // Reset playlist selection
-                            preferenceManager.apply {
-                                myPrefs.selectedScreenTV = "0"
-                                myPrefs.filterQX = "auto"
-                                myPrefs.filterCI = ""
-                                myPrefs.filterLI = ""
-                                myPrefs.selectedRemoteNavTV = "0"
-                                myPrefs.showPLAYLIST = false
-                                myPrefs.showRecentTab = false
-                                myPrefs.startTvAutomatically = false
-                                myPrefs.startTvAutoDelay = false
-                                myPrefs.startTvAutoDelayTime = 0
-                                myPrefs.lastSelectedCategoriesExp = ""
+                            showPlaylist = false
 
-                                savePreferences()
+                            // PERFORMANCE FIX: Save preferences in background thread
+                            coroutineScope.launch(Dispatchers.IO) {
+                                preferenceManager.apply {
+                                    myPrefs.selectedScreenTV = "0"
+                                    myPrefs.filterQX = "auto"
+                                    myPrefs.filterCI = ""
+                                    myPrefs.filterLI = ""
+                                    myPrefs.selectedRemoteNavTV = "0"
+                                    myPrefs.showPLAYLIST = false
+                                    myPrefs.showAllTabs = false
+                                    myPrefs.showEPG = false
+
+                                    myPrefs.startTvAutomatically = false
+                                    myPrefs.startTvAutoDelay = false
+                                    myPrefs.startTvAutoDelayTime = 0
+                                    myPrefs.lastSelectedCategoriesExp = ""
+                                    savePreferences()
+                                }
+                                withContext(Dispatchers.Main) {
+                                    onReset()
+                                }
                             }
-                            onReset()
                         },
                         shape = MaterialTheme.shapes.medium
                     ) { Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset") }
+
+                    // Save Button
                     Button(
                         onClick = {
-                            onSelectionsMade(
-                                qualityMap[selectedQuality],
-                                selectedCategories.value,
-                                selectedCategoryInts.value,
-                                selectedLanguages.value,
-                                selectedLanguageInts.value
-                            )
-                            preferenceManager.apply {
-                                myPrefs.selectedScreenTV = selectedScreenTV.toString()
-                                myPrefs.selectedRemoteNavTV = selectedTvRemoteNavOption.toString()
-                                myPrefs.filterQX = selectedQuality
-                                myPrefs.filterCI = selectedCategoryInts.value.joinToString(",")
-                                myPrefs.filterLI = selectedLanguageInts.value.joinToString(",")
-                                if (myPrefs.customPlaylistSupport) {
-                                    myPrefs.showPLAYLIST = showPlaylist
+                            // PERFORMANCE FIX: Save preferences in background thread
+                            coroutineScope.launch(Dispatchers.IO) {
+                                preferenceManager.apply {
+                                    myPrefs.selectedScreenTV = selectedScreenTV.toString()
+                                    myPrefs.selectedRemoteNavTV = selectedTvRemoteNavOption.toString()
+                                    myPrefs.filterQX = selectedQuality
+                                    myPrefs.filterCI = selectedCategoryInts.value.joinToString(",")
+                                    myPrefs.filterLI = selectedLanguageInts.value.joinToString(",")
+                                    if (myPrefs.customPlaylistSupport) {
+                                        myPrefs.showPLAYLIST = showPlaylist
+                                    }
+                                    myPrefs.showAllTabs = showAllTabs
+
+                                    myPrefs.showEPG = showEpg
+
+                                    myPrefs.startTvAutomatically = startTvAutomatically
+                                    myPrefs.startTvAutoDelay = startTvAutoDelay
+                                    myPrefs.startTvAutoDelayTime = startTvAutoDelayTime
+                                    savePreferences()
                                 }
-                                myPrefs.showRecentTab = showRecentTab
-                                myPrefs.startTvAutomatically = startTvAutomatically
-                                myPrefs.startTvAutoDelay = startTvAutoDelay
-                                myPrefs.startTvAutoDelayTime = startTvAutoDelayTime
-                                savePreferences()
+
+                                withContext(Dispatchers.Main) {
+                                    onSelectionsMade(
+                                        qualityMap[selectedQuality],
+                                        selectedCategories.value,
+                                        selectedCategoryInts.value,
+                                        selectedLanguages.value,
+                                        selectedLanguageInts.value
+                                    )
+                                    try {
+                                        PlayerCommandBus.requestStopPlayback()
+                                        PlayerCommandBus.requestClosePip()
+                                    } catch (_: Exception) { /* no-op */ }
+                                    onDismiss()
+                                }
                             }
-                            // Stop playback and close PiP when saving from TV screen menu
-                            try {
-                                PlayerCommandBus.requestStopPlayback()
-                                PlayerCommandBus.requestClosePip()
-                            } catch (_: Exception) { /* no-op */ }
-                            onDismiss()
                         },
                         shape = MaterialTheme.shapes.medium
                     ) { Text("Save") }
@@ -751,22 +658,18 @@ fun MultiSelectDropdown(
             options.forEach { option ->
                 val isChecked = selectedOptions.contains(option)
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Checkbox(
                         checked = isChecked,
                         onCheckedChange = {
                             val mutableSelected = selectedOptions.toMutableList()
-
                             when (option) {
                                 "All Languages" -> {
                                     mutableSelected.clear()
                                     mutableSelected.add("All Languages")
                                 }
-
                                 else -> {
                                     if (isChecked) {
                                         mutableSelected.remove(option)
@@ -786,7 +689,6 @@ fun MultiSelectDropdown(
     }
 }
 
-
 @Composable
 fun MultiSelectDropdown2(
     title: String,
@@ -794,12 +696,14 @@ fun MultiSelectDropdown2(
     selectedOptions: List<String>,
     onOptionsSelected: (List<String>) -> Unit
 ) {
-    val distinctCategoryNames = options.mapNotNull { it.category }.distinct()
-
-    val sortedOptions = if (distinctCategoryNames.firstOrNull() == "All") {
-        distinctCategoryNames
-    } else {
-        listOf("All") + distinctCategoryNames.filter { it != "All" }
+    // PERFORMANCE FIX: Cache distinct names so it isn't recalculated on every checkbox click
+    val sortedOptions = remember(options) {
+        val distinctCategoryNames = options.mapNotNull { it.category }.distinct()
+        if (distinctCategoryNames.firstOrNull() == "All") {
+            distinctCategoryNames
+        } else {
+            listOf("All") + distinctCategoryNames.filter { it != "All" }
+        }
     }
 
     Column {
@@ -815,7 +719,6 @@ fun MultiSelectDropdown2(
                         checked = isChecked,
                         onCheckedChange = { checked ->
                             val mutableSelected = selectedOptions.toMutableList()
-
                             if (checked) {
                                 if (categoryName == "All") {
                                     mutableSelected.clear()
@@ -832,7 +735,6 @@ fun MultiSelectDropdown2(
                                     mutableSelected.add("All")
                                 }
                             }
-
                             onOptionsSelected(mutableSelected)
                         }
                     )
@@ -842,7 +744,6 @@ fun MultiSelectDropdown2(
         }
     }
 }
-
 
 @Composable
 fun DropdownSelection2(

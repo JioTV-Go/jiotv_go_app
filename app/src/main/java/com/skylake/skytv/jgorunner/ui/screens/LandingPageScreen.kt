@@ -6,7 +6,6 @@ import android.content.res.Configuration
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Animatable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,19 +54,22 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.ui.tvhome.TvViewModel
 import com.skylake.skytv.jgorunner.ui.tvhome.components.TvScreenMenu
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout
 import com.skylake.skytv.jgorunner.ui.tvhome.Main_Layout_3rd
 import com.skylake.skytv.jgorunner.ui.tvhome.Recent_Layout
 import kotlinx.coroutines.launch
-import kotlin.random.Random
 
 @SuppressLint("NewApi")
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: () -> Unit ) {
+
+    val tvViewModel: TvViewModel = viewModel()
 
     data class TabItem(val text: String, val icon: ImageVector)
 
@@ -92,8 +95,8 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
     // Snackbar state
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
-    var exitPressTime = remember { 0L }
 
+    var exitPressTime by remember { mutableLongStateOf(0L) }
 
     // Back press handler
     BackHandler {
@@ -115,105 +118,113 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
         }
     }
 
-
-    // UI Glow Effect
     val glowColors = listOf(Color.Red, Color.Green, Color.Blue, Color.Yellow, Color.Cyan, Color.Magenta)
-    val glowColor = remember { Animatable(glowColors[Random.nextInt(glowColors.size)]) }
+    val glowColor = remember { glowColors.random() }
     val customFontFamily = FontFamily(Font(R.font.chakrapetch_bold))
-
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { innerPadding ->
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(innerPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Log.d("_", innerPadding.toString())
-        // Top Row
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = { showModeDialog = true }, modifier = Modifier.size(24.dp)) {
-                Icon(
-                    imageVector = Icons.Default.FilterAlt,
-                    contentDescription = "Filter Icon",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
 
-            Text(
-                text = "JTV-GO",
-                fontSize = 12.sp,
-                fontFamily = customFontFamily,
-                color = MaterialTheme.colorScheme.onBackground,
-                style = TextStyle(
-                    shadow = Shadow(
-                        color = glowColor.value,
-                        blurRadius = 30f
+            // Top Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = { showModeDialog = true }, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.FilterAlt,
+                        contentDescription = "Filter Icon",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Text(
+                    text = "JTV-GO",
+                    fontSize = 12.sp,
+                    fontFamily = customFontFamily,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    style = TextStyle(
+                        shadow = Shadow(
+                            color = glowColor,
+                            blurRadius = 30f
+                        )
                     )
                 )
-            )
 
-            IconButton(onClick = { onNavigate("SettingsTV") }, modifier = Modifier.size(24.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Settings Icon",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                IconButton(onClick = { onNavigate("SettingsTV") }, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings Icon",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
-        }
 
-        // Tabs
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                .focusRestorer()
-                .focusRequester(tabFocusRequester),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
-                tabs.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = index == selectedTabIndex,
-                        onClick = { selectedTabIndex = index },
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = "Tab Icon",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(text = tab.text)
+            // Tabs
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .focusRestorer()
+                    .focusRequester(tabFocusRequester),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
+                    tabs.forEachIndexed { index, tab ->
+                        Tab(
+                            selected = index == selectedTabIndex,
+                            onClick = { selectedTabIndex = index },
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = tab.icon,
+                                        contentDescription = "Tab Icon",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(text = tab.text)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
-        }
 
-        // Tab Content
-        when (selectedTabIndex) {
-            0 -> {
-                if (preferenceManager.myPrefs.customPlaylistSupport &&
-                    !preferenceManager.myPrefs.showPLAYLIST
-                ) {
-                    Main_Layout_3rd(context, reloadTrigger = 0)
-                } else {
-                    Main_Layout(context, reloadTrigger = 0)
+            // Tab Content
+            when (selectedTabIndex) {
+                0 -> {
+                    if (preferenceManager.myPrefs.customPlaylistSupport &&
+                        !preferenceManager.myPrefs.showPLAYLIST
+                    ) {
+                        Main_Layout_3rd(context, reloadTrigger = 0)
+                    } else {
+                        Main_Layout(context, reloadTrigger = 0)
+                    }
                 }
+                1 -> Recent_Layout(
+                    context = context,
+                    viewModel = tvViewModel,
+                    basefinURL = tvViewModel.basefinURL
+                )
+                // 2 -> if (isRemoteNavigation) SearchTabLayoutTV(context, tabFocusRequester) else SearchTabLayout(context, tabFocusRequester)
             }
-            1 -> Recent_Layout(context)
-//            2 -> if (isRemoteNavigation) SearchTabLayoutTV(context, tabFocusRequester) else SearchTabLayout(context, tabFocusRequester)
         }
-    }
     }
 
     // Mode Dialog
@@ -237,4 +248,3 @@ fun LandingPageScreen(context: Context, onNavigate: (String) -> Unit, onExit: ()
         tabFocusRequester.requestFocus()
     }
 }
-
