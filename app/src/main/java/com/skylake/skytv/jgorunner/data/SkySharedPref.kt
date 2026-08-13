@@ -223,12 +223,12 @@ class SkySharedPref(context: Context) {
 
         // Omni UI preferences
         @SharedPrefKey("omni_favorites_json") var omniFavoritesJson: String? = "[]",
-        @SharedPrefKey("cloudAutoplayFirstChannel") var cloudAutoplayFirstChannel: Boolean = false,
-        @SharedPrefKey("cloudAutoplayLastChannel") var cloudAutoplayLastChannel: Boolean = false,
-        @SharedPrefKey("cloudEnableSwipeGestures") var cloudEnableSwipeGestures: Boolean = true,
-        @SharedPrefKey("cloudEnableDoubleTapSeek") var cloudEnableDoubleTapSeek: Boolean = true,
-        @SharedPrefKey("cloudAnimationEnabled") var cloudAnimationEnabled: Boolean = true,
-        @SharedPrefKey("cloud_quality_max_height") var cloudQualityMaxHeight: Int = 0
+        @SharedPrefKey("omniAutoplayFirstChannel") var omniAutoplayFirstChannel: Boolean = false,
+        @SharedPrefKey("omniAutoplayLastChannel") var omniAutoplayLastChannel: Boolean = false,
+        @SharedPrefKey("omniEnableSwipeGestures") var omniEnableSwipeGestures: Boolean = true,
+        @SharedPrefKey("omniEnableDoubleTapSeek") var omniEnableDoubleTapSeek: Boolean = true,
+        @SharedPrefKey("omniAnimationEnabled") var omniAnimationEnabled: Boolean = true,
+        @SharedPrefKey("omni_quality_max_height") var omniQualityMaxHeight: Int = 0
     )
 
 

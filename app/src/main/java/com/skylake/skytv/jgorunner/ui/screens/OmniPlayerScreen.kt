@@ -287,8 +287,8 @@ fun OmniPlayerScreen(
         } catch (_: Exception) {}
     }
 
-    LaunchedEffect(preferenceManager.myPrefs.cloudQualityMaxHeight) {
-        val maxHeight = preferenceManager.myPrefs.cloudQualityMaxHeight
+    LaunchedEffect(preferenceManager.myPrefs.omniQualityMaxHeight) {
+        val maxHeight = preferenceManager.myPrefs.omniQualityMaxHeight
         val resolvedHeight = if (maxHeight <= 0) Int.MAX_VALUE else maxHeight
         trackSelector.setParameters(
             trackSelector.buildUponParameters().setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
@@ -1088,7 +1088,7 @@ fun OmniSettingsPanel(
         "2160p (4K)" to 2160
     )
     val qualityLabels = qualityOptions.map { it.first }
-    val currentMaxHeight = preferenceManager.myPrefs.cloudQualityMaxHeight
+    val currentMaxHeight = preferenceManager.myPrefs.omniQualityMaxHeight
     val initialQualityLabel =
         qualityOptions.firstOrNull { it.second == currentMaxHeight }?.first ?: "Auto"
 
@@ -1205,7 +1205,7 @@ fun OmniSettingsPanel(
                 val label = selectedLabels.firstOrNull() ?: "Auto"
                 val index = qualityLabels.indexOf(label).let { if (it < 0) 0 else it }
                 currentQ = label
-                preferenceManager.myPrefs.cloudQualityMaxHeight = qualityOptions[index].second
+                preferenceManager.myPrefs.omniQualityMaxHeight = qualityOptions[index].second
                 preferenceManager.savePreferences()
                 showQualityDialog = false
                 onClose()

@@ -305,18 +305,18 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
                     item {
-                        var checked by remember { mutableStateOf(prefManager.myPrefs.cloudAutoplayFirstChannel) }
+                        var checked by remember { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
                         OmniSettingsToggle("Autoplay 1st CH", checked) {
                             checked = it
-                            prefManager.myPrefs.cloudAutoplayFirstChannel = it
+                            prefManager.myPrefs.omniAutoplayFirstChannel = it
                             prefManager.savePreferences()
                         }
                     }
                     item {
-                        var checked by remember { mutableStateOf(prefManager.myPrefs.cloudAutoplayLastChannel) }
+                        var checked by remember { mutableStateOf(prefManager.myPrefs.omniAutoplayLastChannel) }
                         OmniSettingsToggle("Autoplay Last Played CH", checked) {
                             checked = it
-                            prefManager.myPrefs.cloudAutoplayLastChannel = it
+                            prefManager.myPrefs.omniAutoplayLastChannel = it
                             prefManager.savePreferences()
                         }
                     }
@@ -329,26 +329,26 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
-                        var swipeChecked by remember { mutableStateOf(prefManager.myPrefs.cloudEnableSwipeGestures) }
+                        var swipeChecked by remember { mutableStateOf(prefManager.myPrefs.omniEnableSwipeGestures) }
                         OmniSettingsToggle("Vol/Bright Gestures", swipeChecked) {
                             swipeChecked = it
-                            prefManager.myPrefs.cloudEnableSwipeGestures = it
+                            prefManager.myPrefs.omniEnableSwipeGestures = it
                             prefManager.savePreferences()
                         }
                     }
                     item {
-                        var doubleTapChecked by remember { mutableStateOf(prefManager.myPrefs.cloudEnableDoubleTapSeek) }
+                        var doubleTapChecked by remember { mutableStateOf(prefManager.myPrefs.omniEnableDoubleTapSeek) }
                         OmniSettingsToggle("Double-tap to Seek", doubleTapChecked) {
                             doubleTapChecked = it
-                            prefManager.myPrefs.cloudEnableDoubleTapSeek = it
+                            prefManager.myPrefs.omniEnableDoubleTapSeek = it
                             prefManager.savePreferences()
                         }
                     }
                     item {
-                        var animChecked by remember { mutableStateOf(prefManager.myPrefs.cloudAnimationEnabled) }
+                        var animChecked by remember { mutableStateOf(prefManager.myPrefs.omniAnimationEnabled) }
                         OmniSettingsToggle("Animations", animChecked) {
                             animChecked = it
-                            prefManager.myPrefs.cloudAnimationEnabled = it
+                            prefManager.myPrefs.omniAnimationEnabled = it
                             prefManager.savePreferences()
                         }
                     }
@@ -367,13 +367,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         OmniSettingsActionItem("Reset Channel Settings", Icons.Default.RestartAlt, enabled = true) {
                             prefManager.myPrefs.freeOnly = true
                             prefManager.myPrefs.freeJioCatchup = false
-                            prefManager.myPrefs.cloudAutoplayFirstChannel = false
-                            prefManager.myPrefs.cloudAutoplayLastChannel = false
+                            prefManager.myPrefs.omniAutoplayFirstChannel = false
+                            prefManager.myPrefs.omniAutoplayLastChannel = false
                             prefManager.myPrefs.enablePip = false
                             prefManager.myPrefs.darkMODE = false
-                            prefManager.myPrefs.cloudEnableSwipeGestures = true
-                            prefManager.myPrefs.cloudEnableDoubleTapSeek = true
-                            prefManager.myPrefs.cloudAnimationEnabled = true
+                            prefManager.myPrefs.omniEnableSwipeGestures = true
+                            prefManager.myPrefs.omniEnableDoubleTapSeek = true
+                            prefManager.myPrefs.omniAnimationEnabled = true
                             prefManager.savePreferences()
 
                             freeOnly = true
@@ -922,7 +922,7 @@ fun OmniChannelGridItem(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Cloud filter dropdown pill
+// Omni filter dropdown pill
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun OmniFilterPill(
@@ -1067,7 +1067,7 @@ fun OmniSettingsActionItem(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Multi select filter dialog (mirrors CloudFilterDialog exactly)
+// Multi select filter dialog (mirrors OmniFilterDialog exactly)
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun MultiSelectFilterDialog(
