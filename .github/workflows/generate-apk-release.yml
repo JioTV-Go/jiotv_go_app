@@ -5,11 +5,11 @@ env:
   app_name: JTV-GO-Server
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "app/version.gradle"
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - "app/version.gradle"
   workflow_dispatch:
 
 jobs:
