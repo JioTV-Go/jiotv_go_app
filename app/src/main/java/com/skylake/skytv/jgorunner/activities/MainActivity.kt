@@ -496,7 +496,12 @@ class MainActivity : FragmentActivity() {
                                 context = this@MainActivity,
                                 onNavigate = { title -> currentScreen = title })
                             "OmniTv" -> {
-                                OmniMainScreen(context = this@MainActivity, onNavigate = { title -> currentScreen = title })
+                                OmniMainScreen(
+                                    context = this@MainActivity,
+                                    onNavigate = { title ->
+                                        currentScreen = if (title == "back") "Landing" else title
+                                    }
+                                )
                             }
                         }
 

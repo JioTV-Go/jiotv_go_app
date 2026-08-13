@@ -91,7 +91,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    var isSidebarVisible by remember { mutableStateOf(true) }
+    var isSidebarVisible by remember { mutableStateOf(false) }
     var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -105,6 +105,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
     var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
     var catchupChannelTarget by remember { mutableStateOf<OmniChannel?>(null) }
+
+    var showImportDialog by remember { mutableStateOf(false) }
 
 
 
@@ -171,8 +173,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     BackHandler {
         when {
             isSearchVisible -> isSearchVisible = false
-            !isSidebarVisible -> isSidebarVisible = true
-            else -> onNavigate("back")
+            isSidebarVisible -> isSidebarVisible = false
+            else -> onNavigate("Landing")
         }
     }
 
@@ -314,6 +316,14 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                     item {
+                        var pipChecked by remember { mutableStateOf(prefManager.myPrefs.enablePip) }
+                        OmniSettingsToggle("PiP Mode", pipChecked) {
+                            pipChecked = it
+                            prefManager.myPrefs.enablePip = it
+                            prefManager.savePreferences()
+                        }
+                    }
+                    item {
                         var swipeChecked by remember { mutableStateOf(prefManager.myPrefs.cloudEnableSwipeGestures) }
                         OmniSettingsToggle("Vol/Bright Gestures", swipeChecked) {
                             swipeChecked = it
@@ -341,11 +351,21 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- SYSTEM ----
                     item { OmniDrawerSectionLabel("SYSTEM") }
                     item {
+                        var darkChecked by remember { mutableStateOf(prefManager.myPrefs.darkMODE) }
+                        OmniSettingsToggle("Dark Theme", darkChecked) {
+                            darkChecked = it
+                            prefManager.myPrefs.darkMODE = it
+                            prefManager.savePreferences()
+                        }
+                    }
+                    item {
                         OmniSettingsActionItem("Reset Channel Settings", Icons.Default.RestartAlt, enabled = true) {
                             prefManager.myPrefs.freeOnly = true
                             prefManager.myPrefs.freeJioCatchup = false
                             prefManager.myPrefs.cloudAutoplayFirstChannel = false
                             prefManager.myPrefs.cloudAutoplayLastChannel = false
+                            prefManager.myPrefs.enablePip = false
+                            prefManager.myPrefs.darkMODE = false
                             prefManager.myPrefs.cloudEnableSwipeGestures = true
                             prefManager.myPrefs.cloudEnableDoubleTapSeek = true
                             prefManager.myPrefs.cloudAnimationEnabled = true
@@ -517,6 +537,23 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 8.dp)
                             )
+
+                            var isImportFocused by remember { mutableStateOf(false) }
+                            IconButton(
+                                onClick = { showImportDialog = true },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .onFocusChanged { isImportFocused = it.isFocused }
+                                    .background(if (isImportFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
+                                    .border(1.dp, if (isImportFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FileDownload,
+                                    contentDescription = "Import Credentials",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
 
 
 
@@ -799,6 +836,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 context.startActivity(intent)
             },
             filteredChannels = filteredChannels
+        )
+    }
+
+    if (showImportDialog) {
+        OmniImportCredentialsDialog(
+            context = context,
+            onDismiss = { showImportDialog = false }
         )
     }
 
@@ -1532,5 +1576,267 @@ data class ResolvedCatchupStream(
     val playUrl: String,
     val licenseUrl: String?
 )
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Import Credentials Dialog & Parser
+// ──────────────────────────────────────────────────────────────────────────────
+@Composable
+fun OmniImportCredentialsDialog(
+    context: Context,
+    onDismiss: () -> Unit
+) {
+    var importContent by remember { mutableStateOf("") }
+    var isImportFocused by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val prefManager = remember { SkySharedPref.getInstance(context) }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val content = inputStream.bufferedReader().use { it.readText() }
+                        inputStream.close()
+                        importContent = content
+                        statusMessage = "Credentials loaded! Click Save & Login."
+                    }
+                } catch (e: Exception) {
+                    statusMessage = "Error reading file: ${e.message}"
+                }
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Import Jio Credentials",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Paste TOML/JSON credentials or pick file",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = { importLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Select Credentials File")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    BasicTextField(
+                        value = importContent,
+                        onValueChange = { importContent = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onFocusChanged { isImportFocused = it.isFocused },
+                        singleLine = false,
+                        maxLines = 15
+                    )
+                    if (importContent.isEmpty()) {
+                        Text(
+                            text = "Paste TOML [data] block or JSON credentials here...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+
+                    Button(
+                        onClick = {
+                            if (importContent.isBlank()) {
+                                statusMessage = "Please paste credentials TOML/JSON"
+                            } else {
+                                val success = saveJioCredentials(context, importContent)
+                                if (success) {
+                                    statusMessage = "Credentials saved! Restarting server..."
+                                    Toast.makeText(context, "Credentials imported! Restarting server...", Toast.LENGTH_LONG).show()
+
+                                    // Stop binary service
+                                    val stopIntent = Intent(context, BinaryService::class.java).apply {
+                                        action = BinaryService.ACTION_STOP_BINARY
+                                    }
+                                    context.startService(stopIntent)
+
+                                    // Restart binary service after short delay
+                                    scope.launch(Dispatchers.IO) {
+                                        var waited = 0
+                                        while (BinaryService.isRunning && waited < 4000) {
+                                            delay(100)
+                                            waited += 100
+                                        }
+                                        val startIntent = Intent(context, BinaryService::class.java).apply {
+                                            putExtra(
+                                                "binaryFileLocation",
+                                                prefManager.myPrefs.jtvGoBinaryName?.let {
+                                                    File(context.filesDir, it).absolutePath
+                                                }
+                                            )
+                                        }
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            context.startForegroundService(startIntent)
+                                        } else {
+                                            context.startService(startIntent)
+                                        }
+                                    }
+                                    onDismiss()
+                                } else {
+                                    statusMessage = "Failed to parse credentials"
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save & Login")
+                    }
+                }
+
+                if (statusMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = statusMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (statusMessage!!.contains("saved")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+fun saveJioCredentials(context: Context, input: String): Boolean {
+    return try {
+        val trimmed = input.trim()
+        val keyMap = mutableMapOf<String, String>()
+
+        if (trimmed.startsWith("{")) {
+            val gson = Gson()
+            val parsedMap = gson.fromJson(trimmed, Map::class.java)
+            parsedMap.forEach { (k, v) ->
+                if (k != null && v != null) {
+                    keyMap[k.toString()] = v.toString()
+                }
+            }
+        } else {
+            trimmed.lines().forEach { line ->
+                val lineTrimmed = line.trim()
+                if (lineTrimmed.isNotEmpty() && !lineTrimmed.startsWith("#") && !lineTrimmed.startsWith("[") && lineTrimmed.contains("=")) {
+                    val parts = lineTrimmed.split("=", limit = 2)
+                    if (parts.size == 2) {
+                        val key = parts[0].trim()
+                        var value = parts[1].trim()
+                        if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+                            value = value.substring(1, value.length - 1)
+                        }
+                        keyMap[key] = value
+                    }
+                }
+            }
+        }
+
+        if (keyMap.isEmpty()) return false
+
+        val accessToken = keyMap["accessToken"] ?: keyMap["access_token"] ?: ""
+        val ssoToken = keyMap["ssoToken"] ?: keyMap["sso_token"] ?: ""
+        val crm = keyMap["crm"] ?: keyMap["crm_id"] ?: keyMap["subscriber_id"] ?: ""
+        val deviceId = keyMap["deviceId"] ?: keyMap["device_id"] ?: ""
+        val refreshToken = keyMap["refreshToken"] ?: keyMap["refresh_token"] ?: ""
+        val uniqueId = keyMap["uniqueId"] ?: keyMap["unique_id"] ?: ""
+        val lastSSOTokenRefreshTime = keyMap["lastSSOTokenRefreshTime"] ?: keyMap["last_sso_token_refresh_time"] ?: "${System.currentTimeMillis() / 1000}"
+        val lastTokenRefreshTime = keyMap["lastTokenRefreshTime"] ?: keyMap["last_token_refresh_time"] ?: "${System.currentTimeMillis() / 1000}"
+
+        if (accessToken.isNotEmpty()) { keyMap["accessToken"] = accessToken; keyMap["access_token"] = accessToken }
+        if (ssoToken.isNotEmpty()) { keyMap["ssoToken"] = ssoToken; keyMap["sso_token"] = ssoToken }
+        if (crm.isNotEmpty()) { keyMap["crm"] = crm; keyMap["crm_id"] = crm }
+        if (deviceId.isNotEmpty()) { keyMap["deviceId"] = deviceId; keyMap["device_id"] = deviceId }
+        if (refreshToken.isNotEmpty()) { keyMap["refreshToken"] = refreshToken; keyMap["refresh_token"] = refreshToken }
+        if (uniqueId.isNotEmpty()) { keyMap["uniqueId"] = uniqueId; keyMap["unique_id"] = uniqueId }
+        keyMap["lastSSOTokenRefreshTime"] = lastSSOTokenRefreshTime
+        keyMap["lastTokenRefreshTime"] = lastTokenRefreshTime
+
+        val gson = Gson()
+        val jsonContent = gson.toJson(keyMap)
+
+        val dir1 = File(context.filesDir, ".jiotv_go")
+        if (!dir1.exists()) dir1.mkdirs()
+        File(dir1, "jiotv_credentials_v2.json").writeText(jsonContent)
+        File(dir1, "credentials.json").writeText(jsonContent)
+
+        File(context.filesDir, "jiotv_credentials_v2.json").writeText(jsonContent)
+        File(context.filesDir, "credentials.json").writeText(jsonContent)
+
+        val tomlContent = buildString {
+            append("[data]\n")
+            keyMap.forEach { (k, v) ->
+                append("  $k = \"$v\"\n")
+            }
+        }
+        val loginDir = File(context.filesDir.parent, "files")
+        loginDir.mkdirs()
+        File(loginDir, "store_v4.toml").writeText(tomlContent)
+        File(context.filesDir, "store_v4.toml").writeText(tomlContent)
+
+        SkySharedPref.getInstance(context).reloadPreferences()
+
+        true
+    } catch (e: Exception) {
+        Log.e("OmniImport", "Error saving imported credentials", e)
+        false
+    }
+}
 
 
