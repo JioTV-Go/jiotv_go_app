@@ -266,6 +266,7 @@ fun OmniPlayerScreen(
         val builder = MediaItem.Builder()
 
         if (!licenseUrl.isNullOrBlank()) {
+            // Use provided MPD url and license key directly
             builder.setUri(ch.mpdUrl ?: ch.url ?: "")
             builder.setDrmConfiguration(
                 MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
@@ -277,28 +278,31 @@ fun OmniPlayerScreen(
             )
             builder.setMimeType(MimeTypes.APPLICATION_MPD)
         } else {
-            val targetUrl = if (forceDrm) {
-                val base = ch.m3u8Url ?: ch.url ?: ""
-                base.replace("/live/mpd/", "/live/mpd/").replace("/live/", "/live/mpd/").replace(".m3u8", ".mpd")
-            } else {
-                val base = ch.m3u8Url ?: ch.url ?: ""
-                base.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
+            // No explicit license - select URL based on forceDrm flag
+            val isLocalChannel = (ch.mpdUrl ?: ch.m3u8Url ?: ch.url ?: "").let {
+                it.contains("127.0.0.1") || it.contains("localhost")
             }
-            builder.setUri(targetUrl)
-            if (forceDrm || isMpd) {
-                val calculatedLicense = targetUrl.replace("/live/mpd/", "/live/key/").replace(".mpd", "")
+            if (forceDrm && ch.mpdUrl != null) {
+                builder.setUri(ch.mpdUrl!!)
+                // Derive key URL for local Jio server
+                val channelId = ch.mpdUrl!!.substringAfterLast("/").substringBefore(".")
+                val base = ch.mpdUrl!!.substringBefore("/live/mpd/")
+                val derivedKey = "$base/live/key/$channelId"
                 builder.setDrmConfiguration(
                     MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                        .setLicenseUri(calculatedLicense)
+                        .setLicenseUri(derivedKey)
                         .build()
                 )
                 builder.setMimeType(MimeTypes.APPLICATION_MPD)
             } else {
+                val hlsUrl = ch.m3u8Url ?: ch.url ?: ""
+                builder.setUri(hlsUrl)
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
         }
         return builder.build()
     }
+
 
     var currentResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     val trackSelector = remember { DefaultTrackSelector(context) }
@@ -384,20 +388,25 @@ fun OmniPlayerScreen(
             }
 
             var resolvedLicenseUrl = ch.licenseUrl
-            var playbackUrl = ch.mpdUrl ?: ch.m3u8Url ?: ch.url ?: ""
-            
-            val isMpd = ch.mpdUrl != null || ch.url?.contains(".mpd") == true
-            if (resolvedLicenseUrl.isNullOrBlank()) {
-                val targetUrl = if (useDrm) {
-                    playbackUrl.replace("/live/mpd/", "/live/mpd/").replace("/live/", "/live/mpd/").replace(".m3u8", ".mpd")
-                } else {
-                    playbackUrl.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
-                }
-                playbackUrl = targetUrl
-                if (useDrm || isMpd) {
-                    resolvedLicenseUrl = playbackUrl.replace("/live/mpd/", "/live/key/").replace(".mpd", "")
-                }
+            // When DRM is enabled, prefer MPD (DASH). When DRM is off, always use HLS m3u8.
+            var playbackUrl = if (useDrm && ch.mpdUrl != null) {
+                ch.mpdUrl!!
+            } else {
+                ch.m3u8Url ?: ch.url ?: ""
             }
+
+            val isLocalChannel = playbackUrl.contains("127.0.0.1") || playbackUrl.contains("localhost")
+
+            // If still no license URL for a local DRM channel, auto-derive it from the MPD URL.
+            if (useDrm && isLocalChannel && resolvedLicenseUrl.isNullOrBlank() && ch.mpdUrl != null) {
+                val channelId = ch.mpdUrl!!.substringAfterLast("/").substringBefore(".")
+                val base = ch.mpdUrl!!.substringBefore("/live/mpd/")
+                resolvedLicenseUrl = "$base/live/key/$channelId"
+            }
+
+            // Force HLS when DRM is toggled off
+            if (!useDrm) resolvedLicenseUrl = null
+
 
             val builder = MediaItem.Builder()
                 .setUri(playbackUrl.toUri())

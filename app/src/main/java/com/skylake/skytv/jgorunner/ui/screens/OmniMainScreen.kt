@@ -371,7 +371,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniAutoplayFirstChannel = false
                             prefManager.myPrefs.omniAutoplayLastChannel = false
                             prefManager.myPrefs.enablePip = false
-                            prefManager.myPrefs.darkMODE = false
+                            prefManager.myPrefs.darkMODE = true
                             prefManager.myPrefs.omniEnableSwipeGestures = true
                             prefManager.myPrefs.omniEnableDoubleTapSeek = true
                             prefManager.myPrefs.omniAnimationEnabled = true
@@ -379,7 +379,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
                             freeOnly = true
                             freeJioCatchup = false
-                            isDarkMode = false
+                            isDarkMode = true
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
                             settingsUpdateTrigger++
@@ -790,6 +790,25 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
             }
         }
+
+        // Catchup overlay — must be inside the same Box to actually overlay the grid
+        catchupChannelTarget?.let { target ->
+            OmniCatchupOverlay(
+                channel = target,
+                localPORT = port,
+                onClose = { catchupChannelTarget = null },
+                context = context,
+                preferenceManager = prefManager,
+                onPlayChannel = { resolvedChannel ->
+                    com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = listOf(resolvedChannel)
+                    val intent = Intent(context, OmniPlayerActivity::class.java).apply {
+                        putExtra("channel_index", 0)
+                    }
+                    context.startActivity(intent)
+                },
+                filteredChannels = filteredChannels
+            )
+        }
     }
 
     // Category Filter Dialog
@@ -828,24 +847,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         )
     }
 
-    // Catchup overlay
-    catchupChannelTarget?.let { target ->
-        OmniCatchupOverlay(
-            channel = target,
-            localPORT = port,
-            onClose = { catchupChannelTarget = null },
-            context = context,
-            preferenceManager = prefManager,
-            onPlayChannel = { resolvedChannel ->
-                com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = listOf(resolvedChannel)
-                val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                    putExtra("channel_index", 0)
-                }
-                context.startActivity(intent)
-            },
-            filteredChannels = filteredChannels
-        )
-    }
 
     if (showImportDialog) {
         OmniImportCredentialsDialog(

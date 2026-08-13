@@ -177,7 +177,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("currentPort") var currentPort: Int = 0,
         @SharedPrefKey("recentChannels") var recentChannels: String? = "",
         @SharedPrefKey("operationMODE") var operationMODE: Int = 999,
-        @SharedPrefKey("darkMODE") var darkMODE: Boolean = false,
+        @SharedPrefKey("darkMODE") var darkMODE: Boolean = true,
         @SharedPrefKey("selectedScreenTV") var selectedScreenTV: String? = "0",
         @SharedPrefKey("selectedRemoteNavTV") var selectedRemoteNavTV: String? = "0",
         @SharedPrefKey("custURL") var custURL: String? = "",
