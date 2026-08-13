@@ -17,7 +17,7 @@ class OmniRepository(private val context: Context) {
 
     suspend fun fetchChannels(port: Int = 5350): List<OmniChannel> = withContext(Dispatchers.IO) {
         try {
-            val url = "http://localhost:$port/playlist.m3u"
+            val url = "http://127.0.0.1:$port/playlist.m3u"
             val request = Request.Builder().url(url).build()
             val m3uChannels = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext emptyList()
@@ -28,7 +28,7 @@ class OmniRepository(private val context: Context) {
 
             // Fetch JSON /channels for requiresSubscription
             try {
-                val jsonRequest = Request.Builder().url("http://localhost:$port/channels").build()
+                val jsonRequest = Request.Builder().url("http://127.0.0.1:$port/channels").build()
                 client.newCall(jsonRequest).execute().use { response ->
                     if (response.isSuccessful) {
                         val jsonBody = response.body?.string() ?: return@use

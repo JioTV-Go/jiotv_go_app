@@ -227,7 +227,8 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("cloudAutoplayLastChannel") var cloudAutoplayLastChannel: Boolean = false,
         @SharedPrefKey("cloudEnableSwipeGestures") var cloudEnableSwipeGestures: Boolean = true,
         @SharedPrefKey("cloudEnableDoubleTapSeek") var cloudEnableDoubleTapSeek: Boolean = true,
-        @SharedPrefKey("cloudAnimationEnabled") var cloudAnimationEnabled: Boolean = true
+        @SharedPrefKey("cloudAnimationEnabled") var cloudAnimationEnabled: Boolean = true,
+        @SharedPrefKey("cloud_quality_max_height") var cloudQualityMaxHeight: Int = 0
     )
 
 

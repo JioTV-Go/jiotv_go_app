@@ -3,7 +3,10 @@ package com.skylake.skytv.jgorunner.ui.screens
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -16,9 +19,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -38,6 +40,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -48,8 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -58,12 +63,19 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.skylake.skytv.jgorunner.data.OmniFavoritesStore
+import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.data.OmniFavoritesStore
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
+import com.skylake.skytv.jgorunner.ui.components.OmniFilterDialog
+import com.skylake.skytv.jgorunner.utils.LogCollector
+import com.skylake.skytv.jgorunner.utils.DeviceUtils
+import com.skylake.skytv.jgorunner.utils.cleanupPlaybackLogic
+import com.skylake.skytv.jgorunner.utils.setupCustomPlaybackLogic
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 private const val OMNI_TAG = "OmniPlayerScreen"
 
@@ -73,33 +85,88 @@ private const val OMNI_TAG = "OmniPlayerScreen"
 fun OmniPlayerScreen(
     preferenceManager: SkySharedPref,
     channelList: List<OmniChannel>,
-    initialIndex: Int
+    initialIndex: Int,
+    serverUrl: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+
+    var activeList by remember { mutableStateOf(channelList) }
     var currentIndex by remember(initialIndex) { mutableIntStateOf(initialIndex) }
-    var activeChannel by remember(currentIndex) { mutableStateOf(channelList.getOrNull(currentIndex)) }
-    
+    var activeChannel by remember(currentIndex) {
+        mutableStateOf(activeList.getOrNull(currentIndex))
+    }
+
+    val rootFocusRequester = remember { FocusRequester() }
+    val overlayFocusRequester = remember { FocusRequester() }
+    val seekBarFocusRequester = remember { FocusRequester() }
+    val sidePanelFocusRequester = remember { FocusRequester() }
+    val settingsPanelFocusRequester = remember { FocusRequester() }
+
     var showChannelPanel by remember { mutableStateOf(false) }
     var showSettingsPanel by remember { mutableStateOf(false) }
-    var currentResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var currentPlaybackSpeed by remember { mutableFloatStateOf(1.0f) }
-    
+
+    // Selected subtitle label ("Off" when none). Resets per channel (keyed on currentIndex).
+    var selectedSubtitleLabel by remember(currentIndex) { mutableStateOf("Off") }
+    // Selected audio-track label (null → auto/first). Resets per channel.
+    var selectedAudioLabel by remember(currentIndex) { mutableStateOf<String?>(null) }
+    // User-selected playback speed (resets to 1.0f on video/channel change).
+    var currentPlaybackSpeed by remember(currentIndex) { mutableFloatStateOf(1.0f) }
+
+    // Double-tap / dpad seek indicator (YouTube-style "+10s" / "-10s" flash).
+    var seekIndicatorForward by remember { mutableStateOf(true) }
+    var seekIndicatorSeconds by remember { mutableIntStateOf(0) }
+    var showSeekIndicator by remember { mutableStateOf(false) }
+    var seekIndicatorJob by remember { mutableStateOf<Job?>(null) }
+
+    var panelSelectedIndex by remember { mutableIntStateOf(currentIndex) }
+    var showChannelOverlay by remember { mutableStateOf(false) }
+    var overlayVisibilityTick by remember { mutableLongStateOf(0L) }
     var playerError by remember { mutableStateOf<String?>(null) }
-    var showController by remember { mutableStateOf(true) }
-    var controllerTimeoutJob by remember { mutableStateOf<Job?>(null) }
-    
+
+    var numericBuffer by remember { mutableStateOf("") }
+    var showNumericOverlay by remember { mutableStateOf(false) }
+    var numericJob by remember { mutableStateOf<Job?>(null) }
+
     var useDrm by remember(currentIndex) { mutableStateOf(true) }
     var drmRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
     var catchupRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
 
+    val isMovieOrVod = remember(activeChannel) {
+        val ch = activeChannel ?: return@remember false
+        ch.name?.contains("[Catchup]", ignoreCase = true) == true || ch.url?.contains("/catchup/") == true
+    }
+
+    var showController by remember { mutableStateOf(true) }
+    var controllerTimeoutJob by remember { mutableStateOf<Job?>(null) }
+
+    // Auto Hide Controller Logic
+    fun triggerControllerTimeout() {
+        showController = true
+        controllerTimeoutJob?.cancel()
+        controllerTimeoutJob = scope.launch {
+            delay(5000)
+            showController = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        triggerControllerTimeout()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            controllerTimeoutJob?.cancel()
+        }
+    }
+
+    // DRM media builder for Free Jio mechanisms
     fun buildOmniMediaItem(ch: OmniChannel, forceDrm: Boolean): MediaItem {
         val licenseUrl = ch.licenseUrl
         val isMpd = ch.mpdUrl != null || ch.url?.contains(".mpd") == true
-        
+
         val builder = MediaItem.Builder()
-        
+
         if (!licenseUrl.isNullOrBlank()) {
             builder.setUri(ch.mpdUrl ?: ch.url ?: "")
             builder.setDrmConfiguration(
@@ -110,7 +177,7 @@ fun OmniPlayerScreen(
                     }
                     .build()
             )
-            builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+            builder.setMimeType(MimeTypes.APPLICATION_MPD)
         } else {
             val targetUrl = if (forceDrm) {
                 val base = ch.m3u8Url ?: ch.url ?: ""
@@ -127,15 +194,17 @@ fun OmniPlayerScreen(
                         .setLicenseUri(calculatedLicense)
                         .build()
                 )
-                builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_MPD)
+                builder.setMimeType(MimeTypes.APPLICATION_MPD)
             } else {
-                builder.setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                builder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
         }
         return builder.build()
     }
 
+    var currentResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     val trackSelector = remember { DefaultTrackSelector(context) }
+
     val exoPlayer = remember {
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
@@ -144,7 +213,7 @@ fun OmniPlayerScreen(
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(OMNI_TAG, "ExoPlayer error: ${error.message}")
-                        
+
                         val catchupWebUrl = activeChannel?.headers?.get("catchup_web_url")
                         val isCatchupStream = activeChannel?.name?.contains("[Catchup]", ignoreCase = true) == true &&
                                               !catchupWebUrl.isNullOrBlank()
@@ -154,7 +223,7 @@ fun OmniPlayerScreen(
                             if (catchupRetryCount >= 3) {
                                 Log.w(OMNI_TAG, "Catchup native playback failed 3 times. Redirecting to WebPlayer fallback: $catchupWebUrl")
                                 try {
-                                    val intent = android.content.Intent(context, com.skylake.skytv.jgorunner.activities.WebPlayerActivity::class.java).apply {
+                                    val intent = Intent(context, com.skylake.skytv.jgorunner.activities.WebPlayerActivity::class.java).apply {
                                         putExtra("startup_url", catchupWebUrl)
                                         putExtra("target_channel_id", activeChannel?.id ?: "")
                                     }
@@ -196,29 +265,8 @@ fun OmniPlayerScreen(
             }
     }
 
-    // Auto Hide Controller Logic
-    fun triggerControllerTimeout() {
-        showController = true
-        controllerTimeoutJob?.cancel()
-        controllerTimeoutJob = scope.launch {
-            delay(5000)
-            showController = false
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        triggerControllerTimeout()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            controllerTimeoutJob?.cancel()
-            exoPlayer.release()
-        }
-    }
-
     LaunchedEffect(currentIndex, useDrm) {
-        val ch = channelList.getOrNull(currentIndex) ?: return@LaunchedEffect
+        val ch = activeList.getOrNull(currentIndex) ?: return@LaunchedEffect
         activeChannel = ch
         playerError = null
         try {
@@ -239,14 +287,151 @@ fun OmniPlayerScreen(
         } catch (_: Exception) {}
     }
 
+    LaunchedEffect(preferenceManager.myPrefs.cloudQualityMaxHeight) {
+        val maxHeight = preferenceManager.myPrefs.cloudQualityMaxHeight
+        val resolvedHeight = if (maxHeight <= 0) Int.MAX_VALUE else maxHeight
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters().setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
+        )
+    }
+
+    // Audio & Subtitles selector logic
+    fun getAudioTrackOptions(player: ExoPlayer): List<Pair<String, String>> {
+        val options = mutableListOf<Pair<String, String>>()
+        try {
+            val groups = player.currentTracks.groups
+            for (i in 0 until groups.size) {
+                val group = groups[i]
+                if (group.type == C.TRACK_TYPE_AUDIO) {
+                    for (j in 0 until group.length) {
+                        val format = group.getTrackFormat(j)
+                        val label = format.label ?: format.language ?: "Audio ${options.size + 1}"
+                        options.add(label to (format.language ?: ""))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return options.distinctBy { it.first }
+    }
+
+    // Subtitle tracks options
+    fun getSubtitleTrackOptions(player: ExoPlayer): List<Pair<String, String>> {
+        val options = mutableListOf<Pair<String, String>>()
+        try {
+            val groups = player.currentTracks.groups
+            for (i in 0 until groups.size) {
+                val group = groups[i]
+                if (group.type == C.TRACK_TYPE_TEXT) {
+                    for (j in 0 until group.length) {
+                        val format = group.getTrackFormat(j)
+                        val label = format.label ?: format.language ?: "Subtitle ${options.size + 1}"
+                        options.add(label to (format.language ?: ""))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return options.distinctBy { it.first }
+    }
+
     val favoriteStore = remember { OmniFavoritesStore(preferenceManager) }
-    val isTv = com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context)
+    val isTv = remember { com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context) }
+
+    // Mobile Swipe Gestures
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
+    val maxVolume = remember { audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() }
+    var swipeVolumeValue by remember { mutableFloatStateOf(0f) }
+    var swipeBrightnessValue by remember { mutableFloatStateOf(0.5f) }
+    var showVolumeIndicator by remember { mutableStateOf(false) }
+    var showBrightnessIndicator by remember { mutableStateOf(false) }
+    var dragSideIsLeft by remember { mutableStateOf(false) }
+    var gestureIndicatorJob by remember { mutableStateOf<Job?>(null) }
+    val enableSwipeGestures = true
+
+    val swipeModifier = if (isTv || !enableSwipeGestures) Modifier else Modifier.pointerInput(Unit) {
+        detectVerticalDragGestures(
+            onDragStart = { offset ->
+                dragSideIsLeft = offset.x < (size.width / 2)
+                if (dragSideIsLeft) {
+                    val act = context as? Activity
+                    val lp = act?.window?.attributes
+                    val currentBrightness = if (lp != null && lp.screenBrightness >= 0f) lp.screenBrightness else 0.5f
+                    swipeBrightnessValue = currentBrightness
+                    showBrightnessIndicator = true
+                    showVolumeIndicator = false
+                } else {
+                    val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat()
+                    swipeVolumeValue = currentVol / maxVolume
+                    showVolumeIndicator = true
+                    showBrightnessIndicator = false
+                }
+                gestureIndicatorJob?.cancel()
+            },
+            onDragEnd = {
+                gestureIndicatorJob = scope.launch {
+                    delay(1500)
+                    showVolumeIndicator = false
+                    showBrightnessIndicator = false
+                }
+            },
+            onVerticalDrag = { change, dragAmount ->
+                gestureIndicatorJob?.cancel()
+                val screenHeightPx = size.height.toFloat()
+                val delta = -dragAmount / screenHeightPx
+                if (dragSideIsLeft) {
+                    swipeBrightnessValue = (swipeBrightnessValue + delta).coerceIn(0f, 1f)
+                    val act = context as? Activity
+                    val lp = act?.window?.attributes
+                    if (lp != null) {
+                        lp.screenBrightness = swipeBrightnessValue
+                        act.runOnUiThread {
+                            act.window.attributes = lp
+                        }
+                    }
+                    showBrightnessIndicator = true
+                } else {
+                    swipeVolumeValue = (swipeVolumeValue + delta).coerceIn(0f, 1f)
+                    val targetVol = (swipeVolumeValue * maxVolume).toInt().coerceIn(0, maxVolume.toInt())
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                    showVolumeIndicator = true
+                }
+            }
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    // Picture in Picture controls command mapping
+    DisposableEffect(activeList, currentIndex, exoPlayer) {
+        com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.setHandlers(
+            playPause = {
+                if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+            },
+            next = {
+                if (activeList.isNotEmpty()) {
+                    currentIndex = (currentIndex + 1) % activeList.size
+                }
+            },
+            prev = {
+                if (activeList.isNotEmpty()) {
+                    currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                }
+            },
+            isPlaying = { exoPlayer.isPlaying }
+        )
+        onDispose {
+            com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.clearHandlers()
+        }
+    }
 
     BackHandler {
         when {
             showChannelPanel -> showChannelPanel = false
             showSettingsPanel -> showSettingsPanel = false
-            showController -> showController = false
+            showChannelOverlay -> showChannelOverlay = false
             else -> (context as? Activity)?.finish()
         }
     }
@@ -255,47 +440,103 @@ fun OmniPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .then(swipeModifier)
+            .pointerInput(isMovieOrVod) {
                 detectTapGestures(
                     onTap = {
-                        triggerControllerTimeout()
+                        showChannelOverlay = !showChannelOverlay
+                        if (showChannelOverlay) {
+                            overlayVisibilityTick = System.currentTimeMillis()
+                            triggerControllerTimeout()
+                        }
+                    },
+                    onDoubleTap = { offset ->
+                        if (!isMovieOrVod) return@detectTapGestures
+                        val screenWidth = size.width
+                        val doubleTapLeft = offset.x < (screenWidth / 2)
+                        val seekDelta = if (doubleTapLeft) -10000L else 10000L
+                        
+                        seekIndicatorForward = !doubleTapLeft
+                        seekIndicatorSeconds = 10
+                        showSeekIndicator = true
+                        
+                        seekIndicatorJob?.cancel()
+                        seekIndicatorJob = scope.launch {
+                            delay(1200)
+                            showSeekIndicator = false
+                        }
+
+                        val targetPos = (exoPlayer.currentPosition + seekDelta).coerceIn(0L, exoPlayer.duration)
+                        exoPlayer.seekTo(targetPos)
                     }
                 )
             }
-            .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.type == KeyEventType.KeyDown) {
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
                     triggerControllerTimeout()
-                    when (keyEvent.key) {
+                    when (event.key) {
                         Key.DirectionLeft -> {
-                            if (!showChannelPanel && !showSettingsPanel) {
+                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
                                 showChannelPanel = true
-                                true
-                            } else false
+                                try { sidePanelFocusRequester.requestFocus() } catch (_: Exception) {}
+                                return@onPreviewKeyEvent true
+                            }
                         }
                         Key.DirectionRight -> {
-                            if (!showChannelPanel && !showSettingsPanel) {
+                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
                                 showSettingsPanel = true
-                                true
-                            } else false
+                                try { settingsPanelFocusRequester.requestFocus() } catch (_: Exception) {}
+                                return@onPreviewKeyEvent true
+                            }
                         }
                         Key.DirectionUp -> {
-                            if (!showChannelPanel && !showSettingsPanel && currentIndex > 0) {
-                                currentIndex--
-                                true
-                            } else false
+                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay && activeList.isNotEmpty()) {
+                                currentIndex = (currentIndex + 1) % activeList.size
+                                return@onPreviewKeyEvent true
+                            }
                         }
                         Key.DirectionDown -> {
-                            if (!showChannelPanel && !showSettingsPanel && currentIndex < channelList.size - 1) {
-                                currentIndex++
-                                true
-                            } else false
+                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay && activeList.isNotEmpty()) {
+                                currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                                return@onPreviewKeyEvent true
+                            }
                         }
-                        else -> false
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
+                                showChannelOverlay = true
+                                overlayVisibilityTick = System.currentTimeMillis()
+                                try { overlayFocusRequester.requestFocus() } catch (_: Exception) {}
+                                return@onPreviewKeyEvent true
+                            }
+                        }
                     }
-                } else false
+
+                    val digit = when (event.key) {
+                        Key.Zero -> 0; Key.One -> 1; Key.Two -> 2; Key.Three -> 3; Key.Four -> 4
+                        Key.Five -> 5; Key.Six -> 6; Key.Seven -> 7; Key.Eight -> 8; Key.Nine -> 9
+                        else -> null
+                    }
+                    if (digit != null) {
+                        numericBuffer += digit.toString()
+                        showNumericOverlay = true
+                        numericJob?.cancel()
+                        numericJob = scope.launch {
+                            delay(1500)
+                            val num = numericBuffer.toIntOrNull()
+                            if (num != null && num in 1..activeList.size) {
+                                currentIndex = num - 1
+                            }
+                            numericBuffer = ""
+                            showNumericOverlay = false
+                        }
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                false
             }
+            .focusable()
     ) {
-        // Video Player View
+        // Video View
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -310,326 +551,739 @@ fun OmniPlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Controller Overlay
-        AnimatedVisibility(
-            visible = showController,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 })
-        ) {
+        // Volume / Brightness overlay indicators
+        if (showVolumeIndicator) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.4f))
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Header (Channel Info)
-                activeChannel?.let { ch ->
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)
-                                )
-                            )
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!ch.logo.isNullOrBlank()) {
-                            AsyncImage(
-                                model = ch.logo,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White)
-                                    .padding(4.dp),
-                                contentScale = ContentScale.Fit
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                        }
-                        Column {
-                            Text(
-                                text = ch.name ?: "Unknown Channel",
-                                color = Color.White,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (!ch.group.isNullOrBlank()) {
-                                Text(
-                                    text = ch.group,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Center Controls
-                Row(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { if (currentIndex > 0) currentIndex-- },
-                        modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-
-                    IconButton(
-                        onClick = {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                            triggerControllerTimeout()
-                        },
-                        modifier = Modifier.size(72.dp).background(MaterialTheme.colorScheme.primary, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = if (exoPlayer.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = Color.White,
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { if (currentIndex < channelList.size - 1) currentIndex++ },
-                        modifier = Modifier.size(56.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                    ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                }
-
-                // Bottom Control Options
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-                            )
-                        )
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(onClick = { showChannelPanel = true }) {
-                            Icon(Icons.Default.List, contentDescription = "Channels", tint = Color.White)
-                        }
-                        IconButton(onClick = { showSettingsPanel = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
-                        }
-                    }
-
-                    IconButton(
-                        onClick = {
-                            activeChannel?.let { ch ->
-                                if (favoriteStore.isFavorite(ch)) {
-                                    favoriteStore.remove(ch.name ?: "")
-                                } else {
-                                    favoriteStore.add(ch)
-                                }
-                                triggerControllerTimeout()
-                            }
-                        }
-                    ) {
-                        val isFav = activeChannel?.let { favoriteStore.isFavorite(it) } ?: false
-                        Icon(
-                            imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (isFav) Color.Red else Color.White
-                        )
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = if (swipeVolumeValue == 0f) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                        contentDescription = null,
+                        tint = Color.Cyan,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Volume: ${(swipeVolumeValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Channels Side Panel
-        AnimatedVisibility(
-            visible = showChannelPanel,
-            enter = slideInHorizontally(initialOffsetX = { -it }),
-            exit = slideOutHorizontally(targetOffsetX = { -it })
-        ) {
+        if (showBrightnessIndicator) {
             Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .width(280.dp)
-                    .background(Color.Black.copy(alpha = 0.9f))
-                    .padding(8.dp)
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Channels", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        IconButton(onClick = { showChannelPanel = false }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                        }
-                    }
-
-                    val listState = rememberLazyListState(initialFirstVisibleItemIndex = currentIndex)
-                    LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
-                        itemsIndexed(channelList) { index, ch ->
-                            val isSelected = index == currentIndex
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
-                                    .clickable {
-                                        currentIndex = index
-                                        showChannelPanel = false
-                                    }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (!ch.logo.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = ch.logo,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)).background(Color.White).padding(2.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Column {
-                                    Text(
-                                        text = ch.name ?: "Unknown",
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (!ch.group.isNullOrBlank()) {
-                                        Text(
-                                            text = ch.group,
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Default.Brightness5,
+                        contentDescription = null,
+                        tint = Color.Cyan,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Brightness: ${(swipeBrightnessValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Settings Side Panel
-        AnimatedVisibility(
-            visible = showSettingsPanel,
-            enter = slideInHorizontally(initialOffsetX = { it }),
-            exit = slideOutHorizontally(targetOffsetX = { it }),
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
+        // Fast Forward / Rewind seek indicators
+        if (showSeekIndicator) {
             Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .width(280.dp)
-                    .background(Color.Black.copy(alpha = 0.9f))
-                    .padding(16.dp)
+                    .align(if (seekIndicatorForward) Alignment.CenterEnd else Alignment.CenterStart)
+                    .padding(horizontal = 48.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Playback Settings", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        IconButton(onClick = { showSettingsPanel = false }) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Scale / Resize Mode Option
-                    Text("Aspect Ratio", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val modes = listOf(
-                            "Fit" to AspectRatioFrameLayout.RESIZE_MODE_FIT,
-                            "Zoom" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
-                            "Stretch" to AspectRatioFrameLayout.RESIZE_MODE_FILL
-                        )
-                        modes.forEach { (label, mode) ->
-                            val isSelected = currentResizeMode == mode
-                            Button(
-                                onClick = { currentResizeMode = mode },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(label, fontSize = 12.sp, color = Color.White)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Speed Option
-                    Text("Playback Speed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val speeds = listOf(1.0f, 1.25f, 1.5f)
-                        speeds.forEach { speed ->
-                            val isSelected = currentPlaybackSpeed == speed
-                            Button(
-                                onClick = { currentPlaybackSpeed = speed },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
-                                ),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("${speed}x", fontSize = 12.sp, color = Color.White)
-                            }
-                        }
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = if (seekIndicatorForward) Icons.Default.FastForward else Icons.Default.FastRewind,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(34.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (seekIndicatorForward) "+${seekIndicatorSeconds}s" else "-${seekIndicatorSeconds}s",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
 
-        // Error Dialog / Display
+        // Channel numeric overlay
+        if (showNumericOverlay) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            ) {
+                Text(
+                    text = numericBuffer,
+                    color = Color.Cyan,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Playback error dialog overlay
         playerError?.let { err ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.8f)),
+                    .background(Color.Black.copy(alpha = 0.85f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Error, contentDescription = "Error", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
+                    Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Playback Failed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(err, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            playerError = null
-                            val url = activeChannel?.m3u8Url ?: activeChannel?.url ?: return@Button
-                            exoPlayer.setMediaItem(MediaItem.fromUri(url))
-                            exoPlayer.prepare()
-                            exoPlayer.play()
-                        }
-                    ) {
+                    Text(err, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = {
+                        playerError = null
+                        val url = activeChannel?.m3u8Url ?: activeChannel?.url ?: return@Button
+                        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    }) {
                         Text("Retry")
                     }
                 }
             }
         }
+
+        // Main controls overlay
+        AnimatedVisibility(
+            visible = showChannelOverlay,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            OmniPlayerOverlay(
+                channel = activeChannel,
+                currentIndex = currentIndex,
+                focusRequester = overlayFocusRequester,
+                seekBarFocusRequester = seekBarFocusRequester,
+                autoFocusSeekBar = isTv && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
+                exoPlayer = exoPlayer,
+                onUserInteraction = { overlayVisibilityTick = System.currentTimeMillis() },
+                onMenuClick = { showSettingsPanel = true },
+                onChannelsClick = { showChannelPanel = true },
+                onRefreshClick = {
+                    val url = activeChannel?.m3u8Url ?: activeChannel?.url ?: return@OmniPlayerOverlay
+                    exoPlayer.setMediaItem(MediaItem.fromUri(url))
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                },
+                onPrevClick = {
+                    if (activeList.isNotEmpty()) currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                },
+                onNextClick = {
+                    if (activeList.isNotEmpty()) currentIndex = (currentIndex + 1) % activeList.size
+                }
+            )
+        }
+
+        // Sliding Side Channel Drawer
+        AnimatedVisibility(
+            visible = showChannelPanel,
+            enter = slideInHorizontally { -it },
+            exit = slideOutHorizontally { -it },
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            OmniSidePanel(
+                channels = activeList,
+                selectedIndex = currentIndex,
+                focusRequester = sidePanelFocusRequester,
+                onChannelSelected = { index ->
+                    currentIndex = index
+                    showChannelPanel = false
+                },
+                onClose = { showChannelPanel = false }
+            )
+        }
+
+        // Sliding Settings Drawer
+        AnimatedVisibility(
+            visible = showSettingsPanel,
+            enter = slideInHorizontally { it },
+            exit = slideOutHorizontally { it },
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            val audioTrackPairs = getAudioTrackOptions(exoPlayer)
+            val audioLabels = audioTrackPairs.map { it.first }
+            val resolvedAudioLabel = selectedAudioLabel ?: audioLabels.firstOrNull() ?: "Default"
+
+            val subtitleTrackPairs = getSubtitleTrackOptions(exoPlayer)
+            val subtitleLabels = subtitleTrackPairs.map { it.first }
+
+            OmniSettingsPanel(
+                preferenceManager = preferenceManager,
+                focusRequester = settingsPanelFocusRequester,
+                currentResizeMode = currentResizeMode,
+                onResizeModeChange = { currentResizeMode = it },
+                currentChannel = activeChannel,
+                serverUrl = serverUrl,
+                onClose = { showSettingsPanel = false },
+                currentSpeed = currentPlaybackSpeed,
+                onSpeedSelected = { currentPlaybackSpeed = it },
+                audioLabels = audioLabels,
+                currentAudio = resolvedAudioLabel,
+                onAudioSelected = { label ->
+                    try {
+                        val lang = audioTrackPairs.firstOrNull { it.first == label }?.second
+                        val params = exoPlayer.trackSelectionParameters.buildUpon()
+                        if (!lang.isNullOrBlank()) {
+                            params.setPreferredAudioLanguage(lang)
+                        }
+                        exoPlayer.trackSelectionParameters = params.build()
+                        selectedAudioLabel = label
+                    } catch (e: Exception) {
+                        LogCollector.log("Audio select failed: ${e.message}")
+                    }
+                },
+                subtitleLabels = subtitleLabels,
+                currentSubtitle = selectedSubtitleLabel,
+                onSubtitleSelected = { label ->
+                    try {
+                        val params = exoPlayer.trackSelectionParameters.buildUpon()
+                        if (label == "Off") {
+                            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                        } else {
+                            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                            val lang = subtitleTrackPairs.firstOrNull { it.first == label }?.second
+                            if (!lang.isNullOrBlank()) params.setPreferredTextLanguage(lang)
+                        }
+                        exoPlayer.trackSelectionParameters = params.build()
+                        selectedSubtitleLabel = label
+                    } catch (e: Exception) {
+                        LogCollector.log("Subtitle select failed: ${e.message}")
+                    }
+                }
+            )
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun OmniPlayerOverlay(
+    channel: OmniChannel?,
+    currentIndex: Int,
+    focusRequester: FocusRequester,
+    seekBarFocusRequester: FocusRequester,
+    autoFocusSeekBar: Boolean,
+    exoPlayer: ExoPlayer,
+    onUserInteraction: () -> Unit,
+    onMenuClick: () -> Unit,
+    onChannelsClick: () -> Unit,
+    onRefreshClick: () -> Unit,
+    onPrevClick: () -> Unit,
+    onNextClick: () -> Unit
+) {
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
+
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            currentPosition = exoPlayer.currentPosition
+            duration = exoPlayer.duration
+            isPlaying = exoPlayer.isPlaying
+            delay(500)
+        }
+    }
+
+    LaunchedEffect(autoFocusSeekBar) {
+        if (autoFocusSeekBar) {
+            delay(80)
+            try { seekBarFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    fun formatTime(ms: Long): String {
+        if (ms <= 0) return "00:00"
+        val totalSecs = ms / 1000
+        val mins = totalSecs / 60
+        val secs = totalSecs % 60
+        return String.format("%02d:%02d", mins, secs)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f))
+            .clickable { onUserInteraction() }
+            .padding(24.dp)
+    ) {
+        // Top row
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = channel?.logo,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = 0.9f))
+                    .padding(4.dp),
+                contentScale = ContentScale.Fit
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = channel?.name ?: "Unknown",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+                if (!channel?.group.isNullOrBlank()) {
+                    Text(
+                        text = channel?.group ?: "",
+                        color = Color.Cyan,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Center row
+        Row(
+            modifier = Modifier.align(Alignment.Center),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OverlayButton(onClick = onPrevClick, icon = Icons.Default.SkipPrevious)
+            Spacer(modifier = Modifier.width(24.dp))
+            OverlayButton(
+                onClick = {
+                    if (exoPlayer.isPlaying) {
+                        exoPlayer.pause()
+                    } else {
+                        exoPlayer.play()
+                    }
+                    isPlaying = !isPlaying
+                },
+                icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+            )
+            Spacer(modifier = Modifier.width(24.dp))
+            OverlayButton(onClick = onNextClick, icon = Icons.Default.SkipNext)
+            Spacer(modifier = Modifier.width(24.dp))
+            OverlayButton(onClick = onRefreshClick, icon = Icons.Default.Refresh)
+        }
+
+        // Bottom row
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+        ) {
+            // Seek bar if seekable (catchup show)
+            val seekable = try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false }
+            if (seekable && duration > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
+                    Slider(
+                        value = currentPosition.toFloat(),
+                        onValueChange = {
+                            exoPlayer.seekTo(it.toLong())
+                        },
+                        valueRange = 0f..duration.toFloat(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 12.dp)
+                            .focusRequester(seekBarFocusRequester)
+                    )
+                    Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row {
+                    OverlayButton(
+                        onClick = onChannelsClick,
+                        icon = Icons.Default.Menu,
+                        modifier = Modifier.focusRequester(focusRequester)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OverlayButton(onClick = onMenuClick, icon = Icons.Default.Settings)
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    var time by remember { mutableStateOf("") }
+                    LaunchedEffect(Unit) {
+                        while (true) {
+                            val cal = Calendar.getInstance()
+                            time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+                            delay(30000)
+                        }
+                    }
+                    Text(
+                        text = time,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun OverlayButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
+    var isFocused by remember { mutableStateOf(false) }
+    val rotationAngle = remember { mutableFloatStateOf(0f) }
+    val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = rotationAngle.value,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 800, easing = androidx.compose.animation.core.LinearEasing),
+        label = "refreshRotation"
+    )
+
+    IconButton(
+        onClick = {
+            if (icon == Icons.Default.Refresh) {
+                rotationAngle.value += 360f
+            }
+            onClick()
+        },
+        modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .background(
+                if (isFocused) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.5f),
+                RoundedCornerShape(50)
+            )
+            .border(if (isFocused) 2.dp else 0.dp, Color.Cyan, RoundedCornerShape(50))
+    ) {
+        Icon(
+            icon,
+            null,
+            tint = if (isFocused) Color.Cyan else Color.White,
+            modifier = if (icon == Icons.Default.Refresh) {
+                Modifier.graphicsLayer { rotationZ = animatedRotation }
+            } else Modifier
+        )
+    }
+}
+
+@Composable
+fun OmniSidePanel(
+    channels: List<OmniChannel>,
+    selectedIndex: Int,
+    focusRequester: FocusRequester,
+    onChannelSelected: (Int) -> Unit,
+    onClose: () -> Unit
+) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selectedIndex) {
+        if (selectedIndex >= 0) listState.scrollToItem(selectedIndex)
+    }
+
+    Box(modifier = Modifier.fillMaxHeight().width(280.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
+        Column {
+            Text("Channels", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
+            LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+                itemsIndexed(channels) { index, channel ->
+                    val isSelected = index == selectedIndex
+                    var isFocused by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (index == selectedIndex) Modifier.focusRequester(focusRequester) else Modifier)
+                            .clip(RoundedCornerShape(8.dp))
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .background(
+                                if (isFocused) Color.Cyan.copy(alpha = 0.3f)
+                                else if (isSelected) Color.Cyan.copy(alpha = 0.1f)
+                                else Color.Transparent
+                            )
+                            .border(if (isFocused) 2.dp else 0.dp, Color.Cyan, RoundedCornerShape(8.dp))
+                            .clickable { onChannelSelected(index) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = channel.name ?: "",
+                            color = if (isFocused || isSelected) Color.Cyan else Color.White,
+                            maxLines = 1,
+                            fontSize = 12.sp,
+                            fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun OmniSettingsPanel(
+    preferenceManager: SkySharedPref,
+    focusRequester: FocusRequester,
+    currentResizeMode: Int,
+    onResizeModeChange: (Int) -> Unit,
+    currentChannel: OmniChannel?,
+    serverUrl: String?,
+    onClose: () -> Unit,
+    currentSpeed: Float = 1.0f,
+    onSpeedSelected: (Float) -> Unit = {},
+    audioLabels: List<String> = emptyList(),
+    currentAudio: String = "Default",
+    onAudioSelected: (String) -> Unit = {},
+    subtitleLabels: List<String> = emptyList(),
+    currentSubtitle: String = "Off",
+    onSubtitleSelected: (String) -> Unit = {}
+) {
+    val modes = listOf(
+        "Fit" to AspectRatioFrameLayout.RESIZE_MODE_FIT,
+        "Fill" to AspectRatioFrameLayout.RESIZE_MODE_FILL,
+        "Zoom" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+        "Fixed Width" to AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH,
+        "Fixed Height" to AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+    )
+
+    val qualityOptions = listOf(
+        "Auto" to 0,
+        "144p" to 144,
+        "240p" to 240,
+        "360p" to 360,
+        "480p" to 480,
+        "720p" to 720,
+        "1080p" to 1080,
+        "1440p" to 1440,
+        "2160p (4K)" to 2160
+    )
+    val qualityLabels = qualityOptions.map { it.first }
+    val currentMaxHeight = preferenceManager.myPrefs.cloudQualityMaxHeight
+    val initialQualityLabel =
+        qualityOptions.firstOrNull { it.second == currentMaxHeight }?.first ?: "Auto"
+
+    // Playback speed options
+    val speedOptions = listOf(
+        0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f
+    )
+    fun speedLabel(s: Float): String = if (s == 1.0f) "Normal (1x)" else "${s}x"
+    val speedLabels = speedOptions.map { speedLabel(it) }
+
+    var showQualityDialog by remember { mutableStateOf(false) }
+    var currentQ by remember { mutableStateOf(initialQualityLabel) }
+    var showSubtitleDialog by remember { mutableStateOf(false) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
+    var showAudioDialog by remember { mutableStateOf(false) }
+    val subtitleOptions = remember(subtitleLabels) { listOf("Off") + subtitleLabels }
+
+    Box(modifier = Modifier.fillMaxHeight().width(250.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
+        Column {
+            Text("Player Settings", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
+
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                item {
+                    val currentLabel = modes.find { it.second == currentResizeMode }?.first ?: "Fit"
+                    SettingsActionItemCompact("Aspect Ratio: $currentLabel", Icons.Default.AspectRatio, modifier = Modifier.focusRequester(focusRequester)) {
+                        val currentIndex = modes.indexOfFirst { it.second == currentResizeMode }
+                        val nextIndex = (currentIndex + 1) % modes.size
+                        onResizeModeChange(modes[nextIndex].second)
+                    }
+                }
+                item {
+                    SettingsActionItemCompact("Quality: $currentQ", Icons.Default.HighQuality) {
+                        showQualityDialog = true
+                    }
+                }
+                item {
+                    SettingsActionItemCompact("Speed: ${speedLabel(currentSpeed)}", Icons.Default.Speed) {
+                        showSpeedDialog = true
+                    }
+                }
+                // Audio Language picker
+                if (audioLabels.size > 1) {
+                    item {
+                        SettingsActionItemCompact("Audio: $currentAudio", Icons.Default.Language) {
+                            showAudioDialog = true
+                        }
+                    }
+                }
+                // Subtitle picker
+                if (subtitleLabels.isNotEmpty()) {
+                    item {
+                        SettingsActionItemCompact("Subtitles: $currentSubtitle", Icons.Default.ClosedCaption) {
+                            showSubtitleDialog = true
+                        }
+                    }
+                }
+                item {
+                    val store = remember(preferenceManager) { OmniFavoritesStore(preferenceManager) }
+                    var isFavorite by remember(currentChannel) {
+                        mutableStateOf(currentChannel != null && store.isFavorite(currentChannel))
+                    }
+
+                    if (currentChannel != null) {
+                        val label = if (isFavorite) "Remove from Favorites" else "Add to Favorites"
+                        val icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder
+                        val iconColor = if (isFavorite) Color.Red else Color.Gray
+                        var isFocused by remember { mutableStateOf(false) }
+                        val context = LocalContext.current
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                                .onFocusChanged { isFocused = it.isFocused }
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isFocused) Color.Cyan.copy(alpha = 0.15f) else Color.Transparent)
+                                .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val added = if (isFavorite) {
+                                        store.remove(currentChannel.name ?: "")
+                                        false
+                                    } else {
+                                        store.add(currentChannel)
+                                    }
+                                    isFavorite = added
+                                    val msg = if (added) "Added to Favorites" else "Removed from Favorites"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(icon, null, tint = if (isFocused) Color.Cyan else iconColor, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(label, color = if (isFocused) Color.White else Color.Gray, fontSize = 11.sp)
+                        }
+                    }
+                }
+                item {
+                    SettingsActionItemCompact("Close Menu", Icons.Default.Close) { onClose() }
+                }
+            }
+        }
+    }
+
+    if (showQualityDialog) {
+        val selected = setOf(currentQ)
+        OmniFilterDialog(
+            title = "Quality",
+            options = qualityLabels,
+            selectedOptions = selected,
+            singleSelect = true,
+            onDismiss = { showQualityDialog = false },
+            onConfirm = { selectedLabels ->
+                val label = selectedLabels.firstOrNull() ?: "Auto"
+                val index = qualityLabels.indexOf(label).let { if (it < 0) 0 else it }
+                currentQ = label
+                preferenceManager.myPrefs.cloudQualityMaxHeight = qualityOptions[index].second
+                preferenceManager.savePreferences()
+                showQualityDialog = false
+                onClose()
+            }
+        )
+    }
+
+    if (showSubtitleDialog) {
+        OmniFilterDialog(
+            title = "Subtitles",
+            options = subtitleOptions,
+            selectedOptions = setOf(currentSubtitle),
+            singleSelect = true,
+            onDismiss = { showSubtitleDialog = false },
+            onConfirm = { selectedLabels ->
+                onSubtitleSelected(selectedLabels.firstOrNull() ?: "Off")
+                showSubtitleDialog = false
+                onClose()
+            }
+        )
+    }
+
+    if (showSpeedDialog) {
+        OmniFilterDialog(
+            title = "Playback Speed",
+            options = speedLabels,
+            selectedOptions = setOf(speedLabel(currentSpeed)),
+            singleSelect = true,
+            onDismiss = { showSpeedDialog = false },
+            onConfirm = { selectedLabels ->
+                val label = selectedLabels.firstOrNull() ?: speedLabel(1.0f)
+                val index = speedLabels.indexOf(label).let { if (it < 0) speedLabels.indexOf(speedLabel(1.0f)) else it }
+                onSpeedSelected(speedOptions[index.coerceIn(0, speedOptions.lastIndex)])
+                showSpeedDialog = false
+                onClose()
+            }
+        )
+    }
+
+    if (showAudioDialog) {
+        OmniFilterDialog(
+            title = "Audio Language",
+            options = audioLabels,
+            selectedOptions = setOf(currentAudio),
+            singleSelect = true,
+            onDismiss = { showAudioDialog = false },
+            onConfirm = { selectedLabels ->
+                selectedLabels.firstOrNull()?.let { onAudioSelected(it) }
+                showAudioDialog = false
+                onClose()
+            }
+        )
+    }
+}
+
+@Composable
+fun SettingsActionItemCompact(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isFocused) Color.Cyan.copy(alpha = 0.15f) else Color.Transparent)
+            .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = if (isFocused) Color.Cyan else Color.Gray, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(label, color = if (isFocused) Color.White else Color.Gray, fontSize = 11.sp)
     }
 }

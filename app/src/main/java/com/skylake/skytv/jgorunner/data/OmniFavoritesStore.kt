@@ -31,6 +31,6 @@ class OmniFavoritesStore(private val pref: SkySharedPref) {
         return true
     }
 
-    fun remove(id: String) { save(load().filterNot { it.id == id }) }
+    fun remove(id: String) { save(load().filterNot { it.id == id || it.name == id }) }
     fun isFavorite(channel: OmniChannel): Boolean = load().any { it.name == channel.name }
 }

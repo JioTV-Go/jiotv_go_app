@@ -1240,7 +1240,7 @@ fun OmniCatchupOverlay(
         try {
             withContext(Dispatchers.IO) {
                 val channelId = channel.id ?: ""
-                val urlString = "http://localhost:$localPORT/epg/$channelId/$selectedOffset"
+                val urlString = "http://127.0.0.1:$localPORT/epg/$channelId/$selectedOffset"
                 val connection = java.net.URL(urlString).openConnection() as java.net.HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
@@ -1399,7 +1399,7 @@ fun OmniCatchupOverlay(
                                         if (resolvingProgramSrno != null) return@OmniCatchupTile
                                         resolvingProgramSrno = program.srno
                                         coroutineScope.launch {
-                                            val videoUrl = "http://localhost:$localPORT/catchup/render/${channel.id}?start=${program.startEpoch}&end=${program.endEpoch}&srno=${program.srno}"
+                                            val videoUrl = "http://127.0.0.1:$localPORT/catchup/render/${channel.id}?start=${program.startEpoch}&end=${program.endEpoch}&srno=${program.srno}"
                                             val resolved = resolveCatchupStream(context, videoUrl)
                                             resolvingProgramSrno = null
                                             if (resolved != null) {
@@ -1471,7 +1471,7 @@ fun OmniCatchupTile(
             ) {
                 if (program.episodePoster.isNotBlank()) {
                     AsyncImage(
-                        model = "http://localhost:$localPORT/jtvposter/${program.episodePoster}",
+                        model = "http://127.0.0.1:$localPORT/jtvposter/${program.episodePoster}",
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -1559,7 +1559,7 @@ suspend fun resolveCatchupStream(context: Context, renderUrl: String): ResolvedC
             }
 
             if (playUrlMatch != null) {
-                val localBase = "http://localhost:${SkySharedPref.getInstance(context).myPrefs.jtvGoServerPort}"
+                val localBase = "http://127.0.0.1:${SkySharedPref.getInstance(context).myPrefs.jtvGoServerPort}"
                 val absolutePlayUrl = if (playUrlMatch.startsWith("/")) "$localBase$playUrlMatch" else playUrlMatch
                 val absoluteLicenseUrl = licenseUrlMatch?.let {
                     if (it.isBlank()) null
