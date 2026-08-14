@@ -18,6 +18,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -225,7 +226,12 @@ fun OmniPlayerScreen(
     var showNumericOverlay by remember { mutableStateOf(false) }
     var numericJob by remember { mutableStateOf<Job?>(null) }
 
-    var useDrm by remember(currentIndex) { mutableStateOf(true) }
+    var useDrm by remember(currentIndex) {
+        val ch = activeList.getOrNull(currentIndex)
+        val hasSubscriptionInfo = activeList.any { it.requiresSubscription }
+        val needsDrm = if (hasSubscriptionInfo) ch?.requiresSubscription == true else true
+        mutableStateOf(needsDrm)
+    }
     var playbackTrigger by remember(currentIndex) { mutableIntStateOf(0) }
     var drmRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
     var catchupRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
@@ -235,16 +241,15 @@ fun OmniPlayerScreen(
         ch.name?.contains("[Catchup]", ignoreCase = true) == true || ch.url?.contains("/catchup/") == true
     }
 
-    var showController by remember { mutableStateOf(true) }
     var controllerTimeoutJob by remember { mutableStateOf<Job?>(null) }
 
     // Auto Hide Controller Logic
     fun triggerControllerTimeout() {
-        showController = true
+        showChannelOverlay = true
         controllerTimeoutJob?.cancel()
         controllerTimeoutJob = scope.launch {
             delay(5000)
-            showController = false
+            showChannelOverlay = false
         }
     }
 
@@ -308,8 +313,16 @@ fun OmniPlayerScreen(
     val trackSelector = remember { DefaultTrackSelector(context) }
 
     val exoPlayer = remember {
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                25000, 
+                50000, 
+                1500,  
+                2500   
+            ).build()
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
             .build()
             .apply {
                 addListener(object : Player.Listener {
@@ -435,7 +448,13 @@ fun OmniPlayerScreen(
             if (isDrm) {
                 val drmCallback = OmniMediaDrmCallback(resolvedLicenseUrl!!, normalizedHeaders, okHttpClient)
                 drmSessionManager = DefaultDrmSessionManager.Builder()
-                    .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID, FrameworkMediaDrm.DEFAULT_PROVIDER)
+                    .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
+                        FrameworkMediaDrm.newInstance(uuid).apply {
+                            try {
+                                setPropertyString("securityLevel", "L3")
+                            } catch (_: Exception) {}
+                        }
+                    }
                     .setMultiSession(true)
                     .build(drmCallback)
             }
@@ -621,8 +640,12 @@ fun OmniPlayerScreen(
             .pointerInput(isMovieOrVod) {
                 detectTapGestures(
                     onTap = {
-                        showChannelOverlay = !showChannelOverlay
                         if (showChannelOverlay) {
+                            showChannelOverlay = false
+                            showChannelPanel = false
+                            showSettingsPanel = false
+                        } else {
+                            showChannelOverlay = true
                             overlayVisibilityTick = System.currentTimeMillis()
                             triggerControllerTimeout()
                         }
@@ -843,7 +866,7 @@ fun OmniPlayerScreen(
 
         // Main controls overlay
         AnimatedVisibility(
-            visible = showChannelOverlay,
+            visible = showChannelOverlay && !showChannelPanel && !showSettingsPanel,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
@@ -854,7 +877,10 @@ fun OmniPlayerScreen(
                 seekBarFocusRequester = seekBarFocusRequester,
                 autoFocusSeekBar = isTv && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
                 exoPlayer = exoPlayer,
-                onUserInteraction = { overlayVisibilityTick = System.currentTimeMillis() },
+                onUserInteraction = { 
+                    overlayVisibilityTick = System.currentTimeMillis()
+                    triggerControllerTimeout()
+                },
                 onMenuClick = { showSettingsPanel = true },
                 onChannelsClick = { showChannelPanel = true },
                 onRefreshClick = {
@@ -865,6 +891,11 @@ fun OmniPlayerScreen(
                 },
                 onNextClick = {
                     if (activeList.isNotEmpty()) currentIndex = (currentIndex + 1) % activeList.size
+                },
+                onDismiss = {
+                    showChannelOverlay = false
+                    showChannelPanel = false
+                    showSettingsPanel = false
                 }
             )
         }
@@ -964,7 +995,8 @@ fun OmniPlayerOverlay(
     onChannelsClick: () -> Unit,
     onRefreshClick: () -> Unit,
     onPrevClick: () -> Unit,
-    onNextClick: () -> Unit
+    onNextClick: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -997,8 +1029,13 @@ fun OmniPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
-            .clickable { onUserInteraction() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                onUserInteraction()
+                onDismiss()
+            }
             .padding(24.dp)
     ) {
         // Top row
@@ -1037,30 +1074,6 @@ fun OmniPlayerOverlay(
             }
         }
 
-        // Center row
-        Row(
-            modifier = Modifier.align(Alignment.Center),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OverlayButton(onClick = onPrevClick, icon = Icons.Default.SkipPrevious)
-            Spacer(modifier = Modifier.width(24.dp))
-            OverlayButton(
-                onClick = {
-                    if (exoPlayer.isPlaying) {
-                        exoPlayer.pause()
-                    } else {
-                        exoPlayer.play()
-                    }
-                    isPlaying = !isPlaying
-                },
-                icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
-            )
-            Spacer(modifier = Modifier.width(24.dp))
-            OverlayButton(onClick = onNextClick, icon = Icons.Default.SkipNext)
-            Spacer(modifier = Modifier.width(24.dp))
-            OverlayButton(onClick = onRefreshClick, icon = Icons.Default.Refresh)
-        }
-
         // Bottom row
         Column(
             modifier = Modifier
@@ -1096,14 +1109,60 @@ fun OmniPlayerOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     OverlayButton(
-                        onClick = onChannelsClick,
+                        onClick = {
+                            onUserInteraction()
+                            onChannelsClick()
+                        },
                         icon = Icons.Default.Menu,
                         modifier = Modifier.focusRequester(focusRequester)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(onClick = onMenuClick, icon = Icons.Default.Settings)
+                    OverlayButton(
+                        onClick = {
+                            onUserInteraction()
+                            onMenuClick()
+                        },
+                        icon = Icons.Default.Settings
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OverlayButton(
+                        onClick = {
+                            onUserInteraction()
+                            onPrevClick()
+                        },
+                        icon = Icons.Default.SkipPrevious
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OverlayButton(
+                        onClick = {
+                            onUserInteraction()
+                            if (exoPlayer.isPlaying) {
+                                exoPlayer.pause()
+                            } else {
+                                exoPlayer.play()
+                            }
+                            isPlaying = !isPlaying
+                        },
+                        icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OverlayButton(
+                        onClick = {
+                            onUserInteraction()
+                            onNextClick()
+                        },
+                        icon = Icons.Default.SkipNext
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    OverlayButton(
+                        onClick = {
+                            onUserInteraction()
+                            onRefreshClick()
+                        },
+                        icon = Icons.Default.Refresh
+                    )
                 }
 
                 Card(

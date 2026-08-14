@@ -43,8 +43,22 @@ class OmniRepository(private val context: Context) {
                         }
                         if (subscriptionMap.isNotEmpty()) {
                             return@withContext m3uChannels.map { ch ->
-                                if (ch.id != null && subscriptionMap[ch.id] == true) {
-                                    ch.copy(requiresSubscription = true)
+                                val requiresSub = ch.id != null && subscriptionMap[ch.id] == true
+                                if (requiresSub) {
+                                    val isLocalJio = ch.url?.contains("127.0.0.1") == true || ch.url?.contains("localhost") == true
+                                    val derivedMpdUrl = if (isLocalJio && ch.url?.contains("/live/") == true) {
+                                        val base = ch.url.substringBefore("/live/")
+                                        "$base/live/mpd/${ch.id}.mpd"
+                                    } else null
+                                    val derivedKeyUrl = if (isLocalJio && ch.url?.contains("/live/") == true) {
+                                        val base = ch.url.substringBefore("/live/")
+                                        "$base/live/key/${ch.id}"
+                                    } else null
+                                    ch.copy(
+                                        requiresSubscription = true,
+                                        mpdUrl = derivedMpdUrl,
+                                        licenseUrl = derivedKeyUrl
+                                    )
                                 } else ch
                             }
                         }
