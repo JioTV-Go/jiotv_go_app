@@ -392,16 +392,14 @@ fun OmniPlayerScreen(
             val normalizedHeaders = mutableMapOf<String, String>()
             normalizedHeaders["Accept"] = "*/*"
             normalizedHeaders["Connection"] = "keep-alive"
-            
-            val jioUA = "JioTV/7.0.8 (Linux; Android 13; Pixel 7 Pro Build/TQ1A.221205.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.64 Mobile Safari/537.36"
-            val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
-            normalizedHeaders["User-Agent"] = jioUA
-            normalizedHeaders["Origin"] = "https://jiotv.jio.com"
-            normalizedHeaders["Referer"] = "https://jiotv.jio.com/"
-            normalizedHeaders["X-Requested-With"] = "com.jio.jiotv"
-            
+
             ch.headers?.forEach { (k, v) ->
-                normalizedHeaders[k] = v
+                val key = when {
+                    k.equals("cookie", true) -> "Cookie"
+                    k.equals("user-agent", true) -> "User-Agent"
+                    else -> k
+                }
+                normalizedHeaders[key] = v
             }
 
             var resolvedLicenseUrl = ch.licenseUrl
@@ -416,7 +414,7 @@ fun OmniPlayerScreen(
                 context = context,
                 inputUrl = rawPlaybackUrl,
                 keepPlayEndpoint = false,
-                applyQuality = false
+                applyQuality = true
             )
 
             val isLocalChannel = playbackUrl.contains("127.0.0.1") || playbackUrl.contains("localhost")
@@ -769,6 +767,7 @@ fun OmniPlayerScreen(
                     player = exoPlayer
                     useController = false
                     resizeMode = currentResizeMode
+                    keepScreenOn = true
                 }
             },
             update = { view ->

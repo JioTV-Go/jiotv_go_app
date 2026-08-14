@@ -74,6 +74,9 @@ import kotlinx.coroutines.withContext
 import android.os.Build
 import com.skylake.skytv.jgorunner.services.BinaryService
 import java.io.File
+import com.skylake.skytv.jgorunner.utils.LogCollector
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -109,6 +112,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     var showImportDialog by remember { mutableStateOf(false) }
     var settingsUpdateTrigger by remember { mutableIntStateOf(0) }
+    var showLogDialog by remember { mutableStateOf(false) }
 
 
 
@@ -362,6 +366,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.darkMODE = checked
                             prefManager.savePreferences()
                             (context as? com.skylake.skytv.jgorunner.activities.MainActivity)?.isSwitchDarkMode = checked
+                        }
+                    }
+                    item {
+                        OmniSettingsActionItem("App Logs", Icons.Default.BugReport, enabled = true) {
+                            showLogDialog = true
                         }
                     }
                     item {
@@ -843,6 +852,22 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             onConfirm = {
                 selectedLanguages = it
                 showLanguageDialog = false
+            }
+        )
+    }
+
+    if (showLogDialog) {
+        LogViewerDialog(
+            onDismiss = { showLogDialog = false },
+            onCopy = {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("App Logs", LogCollector.getLogs())
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+            },
+            onClear = {
+                LogCollector.clear()
+                Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -1846,6 +1871,77 @@ fun saveJioCredentials(context: Context, input: String): Boolean {
         Log.e("OmniImport", "Error saving imported credentials", e)
         false
     }
+}
+
+@Composable
+fun LogViewerDialog(onDismiss: () -> Unit, onCopy: () -> Unit, onClear: () -> Unit) {
+    var refreshTick by remember { mutableIntStateOf(0) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App Logs", fontSize = 16.sp, color = MaterialTheme.colorScheme.primary) },
+        text = {
+            val logs = remember(refreshTick) { LogCollector.getLogs() }
+            Box(modifier = Modifier.height(300.dp).fillMaxWidth().background(Color.Black).padding(8.dp)) {
+                val scrollState = rememberScrollState()
+                Text(
+                    text = if (logs.isBlank()) "No logs yet." else logs,
+                    color = Color.Green,
+                    fontSize = 10.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.verticalScroll(scrollState)
+                )
+            }
+        },
+        confirmButton = {
+             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+                var isClearLogsFocused by remember { mutableStateOf(false) }
+                IconButton(
+                    onClick = {
+                        onClear()
+                        refreshTick++
+                    },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .onFocusChanged { isClearLogsFocused = it.isFocused }
+                        .background(if (isClearLogsFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
+                        .border(1.dp, if (isClearLogsFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(4.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Clear logs",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                var isCopyFocused by remember { mutableStateOf(false) }
+                Button(
+                    onClick = onCopy,
+                    colors = ButtonDefaults.buttonColors(containerColor = if (isCopyFocused) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .onFocusChanged { isCopyFocused = it.isFocused }
+                        .border(1.dp, if (isCopyFocused) MaterialTheme.colorScheme.primary else Color.Transparent, ButtonDefaults.shape)
+                ) {
+                    Text("Copy", color = if (isCopyFocused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                var isCloseFocused by remember { mutableStateOf(false) }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .onFocusChanged { isCloseFocused = it.isFocused }
+                        .background(if (isCloseFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
+                        .border(1.dp, if (isCloseFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(4.dp))
+                ) {
+                    Text("Close", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        dismissButton = null,
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        textContentColor = MaterialTheme.colorScheme.onBackground,
+        titleContentColor = MaterialTheme.colorScheme.onBackground
+    )
 }
 
 

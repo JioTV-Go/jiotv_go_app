@@ -110,14 +110,15 @@ class OmniRepository(private val context: Context) {
                 // MPD: http://127.0.0.1:{port}/live/mpd/{id}.mpd (DRM DASH manifest)
                 // Key: http://127.0.0.1:{port}/live/key/{id} (Widevine license)
                 val isLocalJio = url.contains("127.0.0.1") || url.contains("localhost")
-                val derivedMpdUrl = if (isLocalJio && url.contains("/live/") && url.endsWith(".m3u8")) {
-                    url.substringBefore("/live/") + "/live/mpd/" + extractedId + ".mpd"
+                val isLiveOrPlay = url.contains("/live/") || url.contains("/play/")
+                val base = if (url.contains("/live/")) url.substringBefore("/live/") else url.substringBefore("/play/")
+                val derivedMpdUrl = if (isLocalJio && isLiveOrPlay) {
+                    "$base/live/mpd/$extractedId.mpd"
                 } else null
-                val derivedKeyUrl = if (isLocalJio && url.contains("/live/") && url.endsWith(".m3u8")) {
-                    url.substringBefore("/live/") + "/live/key/" + extractedId
+                val derivedKeyUrl = if (isLocalJio && isLiveOrPlay) {
+                    "$base/live/key/$extractedId"
                 } else null
 
-                
                 if (language.isNullOrBlank()) {
                     val combinedText = "${group ?: ""} ${name ?: ""}".lowercase()
                     for (l in languages) {
@@ -137,7 +138,8 @@ class OmniRepository(private val context: Context) {
                     url = url, 
                     m3u8Url = url, 
                     mpdUrl = derivedMpdUrl,
-                    licenseUrl = derivedKeyUrl
+                    licenseUrl = derivedKeyUrl,
+                    requiresSubscription = isLocalJio
                 ))
                 name = null; logo = null; group = null; language = null; url = null
             }
