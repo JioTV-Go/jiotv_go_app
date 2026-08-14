@@ -23,6 +23,7 @@ import com.skylake.skytv.jgorunner.ui.screens.OmniPlayerScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 import com.skylake.skytv.jgorunner.utils.DeviceUtils
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
+import com.skylake.skytv.jgorunner.utils.LogCollector
 
 class OmniPlayerActivity : ComponentActivity() {
     private var initialIndex by mutableIntStateOf(0)
@@ -48,8 +49,10 @@ class OmniPlayerActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LogCollector.init(applicationContext)
         channelList = com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList
         initialIndex = intent.getIntExtra("channel_index", 0).coerceIn(0, maxOf(0, channelList.size - 1))
+        LogCollector.log("OmniPlayerActivity: onCreate with ${channelList.size} channels, target index: $initialIndex")
         applyImmersive()
         setContent {
             JGOTheme(themeOverride = prefManager.myPrefs.darkMODE) {
@@ -89,6 +92,7 @@ class OmniPlayerActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (prefManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(this)) {
+            LogCollector.log("OmniPlayerActivity: onUserLeaveHint -> enterPipIfAllowed")
             pipController.enterPipIfAllowed()
         }
     }
@@ -101,21 +105,41 @@ class OmniPlayerActivity : ComponentActivity() {
         PlayerCommandBus.isInPipMode = isInPictureInPictureMode
         PlayerCommandBus.isEnteringPip = false
         PlayerCommandBus.notifyPipModeChanged(isInPictureInPictureMode)
+        LogCollector.log("OmniPlayerActivity: onPictureInPictureModeChanged -> isInPip: $isInPictureInPictureMode")
 
         if (isInPictureInPictureMode) {
             if (prefManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(this)) pipController.updatePipActionsIfAllowed()
+        } else {
+            if (prefManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(this)) {
+                window.decorView.postDelayed({
+                    if (!this@OmniPlayerActivity.hasWindowFocus()) {
+                        PlayerCommandBus.requestStopPlayback()
+                        try {
+                            finishAndRemoveTask()
+                        } catch (_: Exception) {
+                            finish()
+                        }
+                    }
+                }, 120)
+            }
         }
     }
 
     override fun onBackPressed() {
-        super.onBackPressed()
+        if (prefManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(this)) {
+            LogCollector.log("OmniPlayerActivity: onBackPressed -> enterPipIfAllowed")
+            pipController.enterPipIfAllowed()
+        } else {
+            @Suppress("DEPRECATION")
+            super.onBackPressed()
+        }
     }
 
     override fun onStart() {
         super.onStart()
         displayManager.registerDisplayListener(mirrorListener, null)
         applyOrientation()
-        if (prefManager.myPrefs.enablePip && !com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(this)) {
+        if (prefManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(this)) {
             pipController.updatePipActionsIfAllowed()
         }
     }

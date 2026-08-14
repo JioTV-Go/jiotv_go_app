@@ -82,6 +82,14 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
+private const val FAVORITES_SERVER_URL = "favorite://omni"
+
+data class OmniServer(
+    val name: String,
+    val url: String,
+    val isFavoriteServer: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
@@ -90,6 +98,26 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val port = prefManager.myPrefs.jtvGoServerPort
     val scope = rememberCoroutineScope()
     val gson = remember { Gson() }
+
+    val favoriteServer = remember {
+        OmniServer(
+            name = "Favorites",
+            url = FAVORITES_SERVER_URL,
+            isFavoriteServer = true
+        )
+    }
+    val freeJioServer = remember(port) {
+        OmniServer(
+            name = "Free Jio",
+            url = "http://127.0.0.1:$port",
+            isFavoriteServer = false
+        )
+    }
+    val availableServers = remember(favoriteServer, freeJioServer) {
+        listOf(favoriteServer, freeJioServer)
+    }
+    var currentServer by remember { mutableStateOf(freeJioServer) }
+    var fullChannelList by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
 
     var channels by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -122,7 +150,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showImportDialog by remember { mutableStateOf(false) }
     var settingsUpdateTrigger by remember { mutableIntStateOf(0) }
     var showLogDialog by remember { mutableStateOf(false) }
-    var showFavoritesOnly by remember { mutableStateOf(false) }
     var favoriteRefreshTick by remember { mutableIntStateOf(0) }
     val favoritesStore = remember { OmniFavoritesStore(prefManager) }
 
@@ -131,8 +158,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             favoriteRefreshTick++
         }
     }
-
-
 
     val searchFocusRequester = remember { FocusRequester() }
     val firstChannelFocusRequester = remember { FocusRequester() }
@@ -145,8 +170,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         channels.any { !it.language.isNullOrBlank() }
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly, showFavoritesOnly, favoriteRefreshTick) {
-        val favs = favoritesStore.load().map { it.name }.toSet()
+    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
         channels.filter { channel ->
             val matchesSearch = searchQuery.isEmpty() ||
                 channel.name?.contains(searchQuery, ignoreCase = true) == true ||
@@ -163,24 +187,58 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
 
             val matchesFreeOnly = !freeOnly || !channel.requiresSubscription
-            val matchesFavorites = !showFavoritesOnly || favs.contains(channel.name)
 
-            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly && matchesFavorites
+            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
         }
     }
 
-    // Load channels
-    LaunchedEffect(Unit) {
-        isLoading = true
-        errorMessage = null
-        try {
-            val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
-            channels = fetched
-            if (fetched.isEmpty()) errorMessage = "No channels found."
-        } catch (e: Exception) {
-            errorMessage = e.localizedMessage ?: "Failed to load channels."
+    // Load channels on server change or favorites refresh
+    LaunchedEffect(currentServer, favoriteRefreshTick) {
+        if (currentServer.url == FAVORITES_SERVER_URL) {
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loading Favorites server channels")
+            val favs = favoritesStore.load()
+            if (fullChannelList.isNotEmpty()) {
+                val favMap = favs.associateBy { it.name }
+                channels = fullChannelList.filter { favMap.containsKey(it.name) }
+            } else {
+                channels = favs.map { fav ->
+                    OmniChannel(
+                        id = fav.id,
+                        name = fav.name,
+                        group = "Favorites",
+                        language = "Hindi",
+                        logo = null,
+                        url = fav.url,
+                        m3u8Url = fav.url,
+                        mpdUrl = null,
+                        licenseUrl = null,
+                        requiresSubscription = false
+                    )
+                }
+            }
+            isLoading = false
+            errorMessage = null
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loaded ${channels.size} favorite channels")
+        } else {
+            isLoading = true
+            errorMessage = null
+            try {
+                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Fetching channels from server: ${currentServer.name} (Port: $port)")
+                val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
+                fullChannelList = fetched
+                channels = fetched
+                if (fetched.isEmpty()) {
+                    errorMessage = "No channels found."
+                    com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Channels fetch returned empty list.")
+                } else {
+                    com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Successfully loaded ${fetched.size} channels from ${currentServer.name}")
+                }
+            } catch (e: Exception) {
+                errorMessage = e.localizedMessage ?: "Failed to load channels."
+                com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Failed to load channels from server", e)
+            }
+            isLoading = false
         }
-        isLoading = false
     }
 
     LaunchedEffect(isSearchVisible) {
@@ -200,7 +258,10 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         when {
             isSearchVisible -> isSearchVisible = false
             isSidebarVisible -> isSidebarVisible = false
-            else -> onNavigate("Landing")
+            else -> {
+                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Back pressed -> navigating to Home")
+                onNavigate("Home")
+            }
         }
     }
 
@@ -312,6 +373,32 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         .fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
+                    // ---- SERVERS ----
+                    item { OmniDrawerSectionLabel("SERVERS") }
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                                .padding(4.dp)
+                        ) {
+                            availableServers.forEach { server ->
+                                OmniServerListItem(
+                                    server = server,
+                                    isSelected = server.url == currentServer.url,
+                                    onSelected = {
+                                        if (currentServer.url != server.url) {
+                                            currentServer = server
+                                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Switched server to: ${server.name} (${server.url})")
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     // ---- FILTERS ----
                     item { OmniDrawerSectionLabel("FILTERS") }
                     item {
@@ -321,20 +408,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         OmniSettingsActionItem("Language Filter", Icons.Default.Language, enabled = hasLanguages) { showLanguageDialog = true }
                     }
                     item {
-                        var checked by remember(favoriteRefreshTick) { mutableStateOf(showFavoritesOnly) }
-                        OmniSettingsToggle("Favorites Only", checked) {
-                            checked = it
-                            showFavoritesOnly = it
-                        }
-                    }
-                    item {
                         OmniSettingsActionItem("Clear Filters", Icons.Default.FilterAltOff, enabled = true) {
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
-                            showFavoritesOnly = false
                             prefManager.myPrefs.omniSelectedCategories = "[]"
                             prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
+                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Cleared filter selections")
                         }
                     }
 
@@ -424,7 +504,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             isDarkMode = true
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
-                            showFavoritesOnly = false
                             settingsUpdateTrigger++
 
                             Toast.makeText(context, "Settings reset to defaults", Toast.LENGTH_SHORT).show()
@@ -776,6 +855,40 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
                 }
+                currentServer.url == FAVORITES_SERVER_URL && channels.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "No favorites yet",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Long-press any channel on Free Jio to add it to your favorites.",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                fontSize = 12.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
                 errorMessage != null && channels.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -787,10 +900,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     scope.launch {
                                         isLoading = true
                                         try {
+                                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Retrying channel fetch from server: ${currentServer.name}")
                                             channels = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
                                             errorMessage = null
                                         } catch (e: Exception) {
                                             errorMessage = e.localizedMessage
+                                            com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Retry failed", e)
                                         }
                                         isLoading = false
                                     }
@@ -805,6 +920,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 Text("Retry", color = if (isRetryFocused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary)
                             }
                         }
+                    }
+                }
+                filteredChannels.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No channels match the current filter or search.",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            fontSize = 14.sp
+                        )
                     }
                 }
                 else -> {
@@ -1983,5 +2107,61 @@ fun LogViewerDialog(onDismiss: () -> Unit, onCopy: () -> Unit, onClear: () -> Un
         titleContentColor = MaterialTheme.colorScheme.onBackground
     )
 }
+
+@Composable
+fun OmniServerListItem(
+    server: OmniServer,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onSelected: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (isFocused) 1.05f else 1.0f, label = "serverScale")
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp, horizontal = 2.dp)
+            .scale(scale)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+            .border(
+                width = if (isFocused) 2.dp else if (isSelected) 1.dp else 0.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.Transparent,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable { onSelected() }
+            .padding(8.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (server.isFavoriteServer) Icons.Default.Star else Icons.Default.Tv,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = server.name,
+                color = if (isFocused || isSelected) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
 
 

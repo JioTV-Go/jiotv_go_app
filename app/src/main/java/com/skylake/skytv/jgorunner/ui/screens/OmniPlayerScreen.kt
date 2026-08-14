@@ -356,6 +356,7 @@ fun OmniPlayerScreen(
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(OMNI_TAG, "ExoPlayer error: ${error.message}")
+                        com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Playback error (${error.errorCodeName} - ${error.message}) for channel: ${activeChannel?.name}", error)
 
                         val catchupWebUrl = activeChannel?.headers?.get("catchup_web_url")
                         val isCatchupStream = activeChannel?.name?.contains("[Catchup]", ignoreCase = true) == true &&
@@ -364,7 +365,7 @@ fun OmniPlayerScreen(
                         if (isCatchupStream) {
                             catchupRetryCount++
                             if (catchupRetryCount >= 3) {
-                                Log.w(OMNI_TAG, "Catchup native playback failed 3 times. Redirecting to WebPlayer fallback: $catchupWebUrl")
+                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Catchup native playback failed 3 times. Redirecting to WebPlayer: $catchupWebUrl")
                                 try {
                                     val intent = Intent(context, com.skylake.skytv.jgorunner.activities.WebPlayerActivity::class.java).apply {
                                         putExtra("startup_url", catchupWebUrl)
@@ -373,11 +374,11 @@ fun OmniPlayerScreen(
                                     context.startActivity(intent)
                                     (context as? Activity)?.finish()
                                 } catch (e: Exception) {
-                                    Log.e(OMNI_TAG, "Failed to fallback to WebPlayerActivity: ${e.message}", e)
+                                    com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to fallback to WebPlayerActivity: ${e.message}", e)
                                 }
                                 return
                             } else {
-                                Log.d(OMNI_TAG, "Catchup failed $catchupRetryCount time(s), retrying...")
+                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Catchup failed $catchupRetryCount time(s), retrying...")
                                 prepare()
                                 play()
                                 return
@@ -387,10 +388,10 @@ fun OmniPlayerScreen(
                         if (useDrm) {
                             drmRetryCount++
                             if (drmRetryCount >= 2) {
-                                Log.w(OMNI_TAG, "DRM failed 2 times, falling back to HLS")
+                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: DRM failed 2 times for ${activeChannel?.name}, falling back to HLS stream")
                                 useDrm = false
                             } else {
-                                Log.d(OMNI_TAG, "DRM failed $drmRetryCount time(s), retrying...")
+                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: DRM failed $drmRetryCount time(s), retrying...")
                                 prepare()
                                 play()
                             }
@@ -402,6 +403,7 @@ fun OmniPlayerScreen(
                     override fun onPlaybackStateChanged(state: Int) {
                         if (state == Player.STATE_READY) {
                             playerError = null
+                            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Playback STATE_READY for channel: ${activeChannel?.name}")
                         }
                     }
                 })
@@ -468,12 +470,13 @@ fun OmniPlayerScreen(
                 }
             }
 
+            val isDrm = !resolvedLicenseUrl.isNullOrBlank()
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Preparing '${ch.name}' (DRM: $isDrm, URL: $playbackUrl, License: $resolvedLicenseUrl)")
 
             val builder = MediaItem.Builder()
                 .setUri(playbackUrl.toUri())
                 .setMediaId(ch.id ?: "")
 
-            val isDrm = !resolvedLicenseUrl.isNullOrBlank()
             if (isDrm) {
                 builder.setDrmConfiguration(
                     MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
@@ -521,6 +524,7 @@ fun OmniPlayerScreen(
             triggerControllerTimeout()
         } catch (e: Exception) {
             Log.e(OMNI_TAG, "Failed to prepare playback", e)
+            com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to prepare playback for ${activeChannel?.name}", e)
             playerError = e.message ?: "Prepare Failed"
         }
     }
@@ -678,7 +682,16 @@ fun OmniPlayerScreen(
             showChannelPanel -> showChannelPanel = false
             showSettingsPanel -> showSettingsPanel = false
             showChannelOverlay -> showChannelOverlay = false
-            else -> (context as? Activity)?.finish()
+            else -> {
+                val act = context as? Activity
+                if (preferenceManager.myPrefs.enablePip && !com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context) && act != null) {
+                    com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayerScreen: BackHandler -> entering PiP")
+                    val pipController = com.skylake.skytv.jgorunner.services.player.PipController(act)
+                    pipController.enterPipIfAllowed()
+                } else {
+                    act?.finish()
+                }
+            }
         }
     }
 

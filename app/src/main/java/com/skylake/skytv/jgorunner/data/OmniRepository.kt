@@ -3,6 +3,7 @@ package com.skylake.skytv.jgorunner.data
 import android.content.Context
 import android.util.Log
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
+import com.skylake.skytv.jgorunner.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -18,13 +19,22 @@ class OmniRepository(private val context: Context) {
     suspend fun fetchChannels(port: Int = 5350): List<OmniChannel> = withContext(Dispatchers.IO) {
         try {
             val url = "http://127.0.0.1:$port/playlist.m3u"
+            LogCollector.log("OmniRepository: Fetching playlist from $url")
             val request = Request.Builder().url(url).build()
             val m3uChannels = client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                parseM3U(response.body?.string() ?: "")
+                if (!response.isSuccessful) {
+                    LogCollector.log("OmniRepository: M3U request failed with code ${response.code}")
+                    return@withContext emptyList()
+                }
+                val body = response.body?.string() ?: ""
+                parseM3U(body, "http://127.0.0.1:$port")
             }
 
-            if (m3uChannels.isEmpty()) return@withContext emptyList()
+            if (m3uChannels.isEmpty()) {
+                LogCollector.log("OmniRepository: Parsed 0 channels from M3U")
+                return@withContext emptyList()
+            }
+            LogCollector.log("OmniRepository: Parsed ${m3uChannels.size} channels from M3U playlist")
 
             // Fetch JSON /channels for requiresSubscription
             try {
@@ -42,6 +52,7 @@ class OmniRepository(private val context: Context) {
                             if (requiresSub) subscriptionMap[id] = true
                         }
                         if (subscriptionMap.isNotEmpty()) {
+                            LogCollector.log("OmniRepository: Enriched ${subscriptionMap.size} premium channels with subscription requirements")
                             return@withContext m3uChannels.map { ch ->
                                 val requiresSub = ch.id != null && subscriptionMap[ch.id] == true
                                 ch.copy(requiresSubscription = requiresSub)
@@ -50,61 +61,127 @@ class OmniRepository(private val context: Context) {
                     }
                 }
             } catch (e: Exception) {
-                Log.w("OmniRepository", "Failed to fetch subscription info: ${e.message}")
+                LogCollector.log("OmniRepository: Subscription info check note: ${e.message}")
             }
 
             m3uChannels
         } catch (e: Exception) {
-            Log.e("OmniRepository", "Error", e)
+            LogCollector.logError("OmniRepository: Error fetching channels", e)
             emptyList()
         }
     }
 
-    private fun parseM3U(body: String): List<OmniChannel> {
+    private fun parseM3U(body: String, localBaseUrl: String): List<OmniChannel> {
         val channels = mutableListOf<OmniChannel>()
-        val lines = body.split("\n")
+        val lines = body.trimStart('\uFEFF').split("\n")
         var name: String? = null
         var logo: String? = null
         var group: String? = null
         var language: String? = null
-        var url: String? = null
+        var licenseUrl: String? = null
+        var manifestType: String? = null
+        var requiresSubscription = false
+        val headers = mutableMapOf<String, String>()
 
         val languages = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Marathi", "Gujarati", "Punjabi", "Urdu", "Odia", "Assamese")
 
-        for (line in lines) {
-            val t = line.trim()
-            if (t.startsWith("#EXTINF")) {
-                val nm = Regex("""tvg-name="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                name = nm?.groupValues?.get(1) ?: t.split(",").lastOrNull()?.trim()
-                val lg = Regex("""tvg-logo="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                logo = lg?.groupValues?.get(1)
-                val gr = Regex("""group-title="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                group = gr?.groupValues?.get(1)
-                
-                val ln = Regex("""tvg-language="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                    ?: Regex("""language="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                    ?: Regex("""tvg-lang="([^"]*)"""", RegexOption.IGNORE_CASE).find(t)
-                language = ln?.groupValues?.get(1)
-            } else if (t.startsWith("http") && name != null) {
-                url = t
-                val extractedId = url.substringAfterLast("/").substringBefore(".").trim()
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            if (line.startsWith("#EXTINF", ignoreCase = true)) {
+                val nm = Regex("""tvg-name="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                name = nm?.groupValues?.get(1)?.trim() ?: line.split(",").lastOrNull()?.trim()
+                val lg = Regex("""tvg-logo="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                logo = lg?.groupValues?.get(1)?.trim()
+                val gr = Regex("""group-title="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                group = gr?.groupValues?.get(1)?.trim()
 
-                // Derive MPD and key URLs for the local JioTV Go server.
-                // HLS: http://127.0.0.1:{port}/live/{id}.m3u8
-                // MPD: http://127.0.0.1:{port}/live/mpd/{id}.mpd (DRM DASH manifest)
-                // Key: http://127.0.0.1:{port}/live/key/{id} (Widevine license)
-                val isLocalJio = url.contains("127.0.0.1") || url.contains("localhost")
-                val isLiveOrPlay = url.contains("/live/") || url.contains("/play/")
-                val base = if (url.contains("/live/")) url.substringBefore("/live/") else url.substringBefore("/play/")
+                val ln = Regex("""tvg-language="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                    ?: Regex("""language="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                    ?: Regex("""tvg-lang="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                language = ln?.groupValues?.get(1)?.trim()
+
+                val subMatch = Regex("""tvg-requires_subscription="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                    ?: Regex("""tvg-subscription="([^"]*)"""", RegexOption.IGNORE_CASE).find(line)
+                requiresSubscription = subMatch?.groupValues?.get(1).equals("true", true) || subMatch?.groupValues?.get(1) == "1"
+            } else if (line.startsWith("#KODIPROP", ignoreCase = true)) {
+                val kv = line.substringAfter(":", "").trim()
+                val propKey = kv.substringBefore("=").trim()
+                val propVal = kv.substringAfter("=", "").trim()
+                if (propKey.equals("inputstream.adaptive.license_key", true) && propVal.isNotBlank()) {
+                    licenseUrl = propVal
+                } else if (propKey.equals("inputstream.adaptive.manifest_type", true)) {
+                    if (propVal.equals("mpd", true) || propVal.equals("dash", true)) {
+                        manifestType = "dash"
+                    }
+                }
+            } else if (line.startsWith("#EXTVLCOPT", ignoreCase = true)) {
+                val match = Regex("""#EXTVLCOPT:(http-user-agent|user-agent|http-referrer|referrer|referer|http-origin|origin)=(.+)""", RegexOption.IGNORE_CASE).find(line)
+                if (match != null) {
+                    val k = match.groupValues[1].trim().lowercase()
+                    val v = match.groupValues[2].trim()
+                    when {
+                        k.contains("user-agent") -> headers["User-Agent"] = v
+                        k.contains("referer") || k.contains("referrer") -> headers["Referer"] = v
+                        k.contains("origin") -> headers["Origin"] = v
+                    }
+                }
+            } else if (line.startsWith("http", ignoreCase = true) && name != null) {
+                var streamUrl = line
+                if (streamUrl.contains("|")) {
+                    val parts = streamUrl.split("|", limit = 2)
+                    streamUrl = parts[0].trim()
+                    val headersStr = parts.getOrNull(1)?.trim().orEmpty()
+                    if (headersStr.isNotBlank()) {
+                        headersStr.split("&").forEach { param ->
+                            val kv = param.split("=", limit = 2)
+                            val k = kv.getOrNull(0)?.trim().orEmpty()
+                            val v = kv.getOrNull(1)?.trim().orEmpty()
+                            if (k.isNotBlank() && v.isNotBlank()) {
+                                when (k.lowercase()) {
+                                    "license", "drmlicense", "drm_license" -> licenseUrl = v
+                                    "user-agent", "http-user-agent" -> headers["User-Agent"] = v
+                                    "origin" -> headers["Origin"] = v
+                                    "referer", "referrer" -> headers["Referer"] = v
+                                    "cookie" -> headers["Cookie"] = v
+                                    else -> headers[k] = v
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val extractedId = streamUrl
+                    .substringAfterLast("/")
+                    .substringBefore("?")
+                    .substringBefore(".")
+                    .trim()
+                    .ifBlank { name.hashCode().toString() }
+
+                val isLocalJio = streamUrl.contains("127.0.0.1") || streamUrl.contains("localhost")
+                val isLiveOrPlay = streamUrl.contains("/live/") || streamUrl.contains("/play/")
+                val base = if (streamUrl.contains("/live/")) streamUrl.substringBefore("/live/") 
+                           else if (streamUrl.contains("/play/")) streamUrl.substringBefore("/play/")
+                           else localBaseUrl
+
                 val derivedMpdUrl = if (isLocalJio && isLiveOrPlay) {
                     "$base/live/mpd/$extractedId.mpd"
+                } else if (manifestType == "dash" || streamUrl.contains(".mpd", true)) {
+                    streamUrl
                 } else null
-                val derivedKeyUrl = if (isLocalJio && isLiveOrPlay) {
+
+                val derivedKeyUrl = licenseUrl ?: if (isLocalJio && isLiveOrPlay) {
                     "$base/live/key/$extractedId"
                 } else null
 
+                val resolvedLogo = when {
+                    logo.isNullOrBlank() -> ""
+                    logo.startsWith("http", ignoreCase = true) -> logo
+                    isLocalJio -> "$base/jtvimage/$logo"
+                    else -> logo
+                }
+
                 if (language.isNullOrBlank()) {
-                    val combinedText = "${group ?: ""} ${name ?: ""}".lowercase()
+                    val combinedText = "${group ?: ""} $name".lowercase()
                     for (l in languages) {
                         if (combinedText.contains(l.lowercase())) {
                             language = l
@@ -113,19 +190,24 @@ class OmniRepository(private val context: Context) {
                     }
                 }
 
-                channels.add(OmniChannel(
-                    id = extractedId, 
-                    name = name, 
-                    group = group, 
-                    language = language, 
-                    logo = logo, 
-                    url = url, 
-                    m3u8Url = url, 
-                    mpdUrl = derivedMpdUrl,
-                    licenseUrl = derivedKeyUrl,
-                    requiresSubscription = false
-                ))
-                name = null; logo = null; group = null; language = null; url = null
+                channels.add(
+                    OmniChannel(
+                        id = extractedId,
+                        name = name,
+                        group = group?.ifBlank { "General" } ?: "General",
+                        language = language?.ifBlank { "Hindi" } ?: "Hindi",
+                        logo = resolvedLogo,
+                        url = streamUrl,
+                        m3u8Url = streamUrl,
+                        mpdUrl = derivedMpdUrl,
+                        licenseUrl = derivedKeyUrl,
+                        headers = headers.takeIf { it.isNotEmpty() },
+                        requiresSubscription = requiresSubscription
+                    )
+                )
+
+                name = null; logo = null; group = null; language = null; licenseUrl = null; manifestType = null; requiresSubscription = false
+                headers.clear()
             }
         }
         return channels
