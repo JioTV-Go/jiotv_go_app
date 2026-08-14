@@ -332,10 +332,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 scope.launch {
                                     isLoading = true
                                     try {
-                                        channels = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
+                                        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Force refreshing channels from server...")
+                                        repository.clearCache()
+                                        val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port, forceRefresh = true) }
+                                        fullChannelList = fetched
+                                        channels = fetched
                                         errorMessage = null
                                     } catch (e: Exception) {
                                         errorMessage = e.localizedMessage
+                                        com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Refresh failed", e)
                                     }
                                     isLoading = false
                                 }
@@ -498,6 +503,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniSelectedCategories = "[]"
                             prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
+                            repository.clearCache()
 
                             freeOnly = true
                             freeJioCatchup = false
@@ -506,7 +512,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             selectedLanguages = emptySet()
                             settingsUpdateTrigger++
 
-                            Toast.makeText(context, "Settings reset to defaults", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Settings reset & cache cleared", Toast.LENGTH_SHORT).show()
                         }
                     }
                     item { Spacer(modifier = Modifier.height(8.dp)) }

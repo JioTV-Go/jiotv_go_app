@@ -1,13 +1,16 @@
 package com.skylake.skytv.jgorunner.data
 
 import android.content.Context
-import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.JsonParser
+import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
 import com.skylake.skytv.jgorunner.utils.LogCollector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class OmniRepository(private val context: Context) {
@@ -16,10 +19,42 @@ class OmniRepository(private val context: Context) {
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
 
-    suspend fun fetchChannels(port: Int = 5350): List<OmniChannel> = withContext(Dispatchers.IO) {
+    private val cacheFile = File(context.cacheDir, "omni_channels_cache.json")
+    private val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours cache
+
+    fun clearCache() {
         try {
+            if (cacheFile.exists()) {
+                cacheFile.delete()
+                LogCollector.log("OmniRepository: Cache cleared successfully")
+            }
+        } catch (e: Exception) {
+            LogCollector.logError("OmniRepository: Failed to clear cache", e)
+        }
+    }
+
+    suspend fun fetchChannels(port: Int = 5350, forceRefresh: Boolean = false): List<OmniChannel> = withContext(Dispatchers.IO) {
+        try {
+            // Check 6-hour local cache
+            if (!forceRefresh && cacheFile.exists()) {
+                val age = System.currentTimeMillis() - cacheFile.lastModified()
+                if (age < CACHE_TTL_MS) {
+                    try {
+                        val cachedText = cacheFile.readText()
+                        val type = object : TypeToken<List<OmniChannel>>() {}.type
+                        val cachedList = Gson().fromJson<List<OmniChannel>>(cachedText, type)
+                        if (!cachedList.isNullOrEmpty()) {
+                            LogCollector.log("OmniRepository: Loaded ${cachedList.size} channels from 6-hour cache (age: ${age / 1000}s)")
+                            return@withContext cachedList
+                        }
+                    } catch (e: Exception) {
+                        LogCollector.log("OmniRepository: Cache read failed (${e.message}), fetching fresh from server...")
+                    }
+                }
+            }
+
             val url = "http://127.0.0.1:$port/playlist.m3u"
-            LogCollector.log("OmniRepository: Fetching playlist from $url")
+            LogCollector.log("OmniRepository: Fetching playlist from $url (forceRefresh: $forceRefresh)")
             val request = Request.Builder().url(url).build()
             val m3uChannels = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -37,12 +72,13 @@ class OmniRepository(private val context: Context) {
             LogCollector.log("OmniRepository: Parsed ${m3uChannels.size} channels from M3U playlist")
 
             // Fetch JSON /channels for requiresSubscription
+            var finalChannels = m3uChannels
             try {
                 val jsonRequest = Request.Builder().url("http://127.0.0.1:$port/channels").build()
                 client.newCall(jsonRequest).execute().use { response ->
                     if (response.isSuccessful) {
                         val jsonBody = response.body?.string() ?: return@use
-                        val jsonObj = com.google.gson.JsonParser.parseString(jsonBody).asJsonObject
+                        val jsonObj = JsonParser.parseString(jsonBody).asJsonObject
                         val resultArray = jsonObj.getAsJsonArray("result") ?: return@use
                         val subscriptionMap = mutableMapOf<String, Boolean>()
                         for (el in resultArray) {
@@ -53,7 +89,7 @@ class OmniRepository(private val context: Context) {
                         }
                         if (subscriptionMap.isNotEmpty()) {
                             LogCollector.log("OmniRepository: Enriched ${subscriptionMap.size} premium channels with subscription requirements")
-                            return@withContext m3uChannels.map { ch ->
+                            finalChannels = m3uChannels.map { ch ->
                                 val requiresSub = ch.id != null && subscriptionMap[ch.id] == true
                                 ch.copy(requiresSubscription = requiresSub)
                             }
@@ -64,7 +100,17 @@ class OmniRepository(private val context: Context) {
                 LogCollector.log("OmniRepository: Subscription info check note: ${e.message}")
             }
 
-            m3uChannels
+            // Save to 6-hour cache
+            if (finalChannels.isNotEmpty()) {
+                try {
+                    cacheFile.writeText(Gson().toJson(finalChannels))
+                    LogCollector.log("OmniRepository: Saved ${finalChannels.size} channels to 6-hour cache")
+                } catch (e: Exception) {
+                    LogCollector.logError("OmniRepository: Failed to save channels to cache", e)
+                }
+            }
+
+            finalChannels
         } catch (e: Exception) {
             LogCollector.logError("OmniRepository: Error fetching channels", e)
             emptyList()
@@ -163,8 +209,9 @@ class OmniRepository(private val context: Context) {
                            else if (streamUrl.contains("/play/")) streamUrl.substringBefore("/play/")
                            else localBaseUrl
 
+                // Local JioTV Go binary MPD manifest endpoint is /live/mpd/{id} (NO .mpd extension!)
                 val derivedMpdUrl = if (isLocalJio && isLiveOrPlay) {
-                    "$base/live/mpd/$extractedId.mpd"
+                    "$base/live/mpd/$extractedId"
                 } else if (manifestType == "dash" || streamUrl.contains(".mpd", true)) {
                     streamUrl
                 } else null

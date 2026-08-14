@@ -450,13 +450,13 @@ fun OmniPlayerScreen(
                     val isMpd = playbackUrl.contains("/live/mpd/")
                     val isLive = playbackUrl.contains("/live/")
                     if (isMpd) {
-                        val channelId = playbackUrl.substringAfterLast("/").substringBefore(".")
+                        val channelId = playbackUrl.substringAfterLast("/").substringBefore("?").substringBefore(".")
                         val base = playbackUrl.substringBefore("/live/mpd/")
                         resolvedLicenseUrl = "$base/live/key/$channelId"
                     } else if (isLive) {
-                        val channelId = playbackUrl.substringAfterLast("/").substringBefore(".")
+                        val channelId = playbackUrl.substringAfterLast("/").substringBefore("?").substringBefore(".")
                         val base = playbackUrl.substringBefore("/live/")
-                        playbackUrl = "$base/live/mpd/$channelId.mpd"
+                        playbackUrl = "$base/live/mpd/$channelId"
                         resolvedLicenseUrl = "$base/live/key/$channelId"
                     }
                 }
@@ -466,12 +466,13 @@ fun OmniPlayerScreen(
             if (!useDrm) {
                 resolvedLicenseUrl = null
                 if (playbackUrl.contains("/live/mpd/")) {
-                    playbackUrl = playbackUrl.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
+                    playbackUrl = playbackUrl.replace("/live/mpd/", "/live/")
                 }
             }
 
             val isDrm = !resolvedLicenseUrl.isNullOrBlank()
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Preparing '${ch.name}' (DRM: $isDrm, URL: $playbackUrl, License: $resolvedLicenseUrl)")
+            val isDash = isDrm || playbackUrl.contains("/live/mpd/") || playbackUrl.contains(".mpd", ignoreCase = true)
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Preparing '${ch.name}' (DRM: $isDrm, DASH: $isDash, URL: $playbackUrl, License: $resolvedLicenseUrl)")
 
             val builder = MediaItem.Builder()
                 .setUri(playbackUrl.toUri())
@@ -485,6 +486,9 @@ fun OmniPlayerScreen(
                         .setMultiSession(true)
                         .build()
                 )
+            }
+
+            if (isDash) {
                 builder.setMimeType(MimeTypes.APPLICATION_MPD)
             } else {
                 builder.setMimeType(MimeTypes.APPLICATION_M3U8)
