@@ -44,23 +44,7 @@ class OmniRepository(private val context: Context) {
                         if (subscriptionMap.isNotEmpty()) {
                             return@withContext m3uChannels.map { ch ->
                                 val requiresSub = ch.id != null && subscriptionMap[ch.id] == true
-                                if (requiresSub) {
-                                    val isLocalJio = ch.url?.contains("127.0.0.1") == true || ch.url?.contains("localhost") == true
-                                    val isLiveOrPlay = ch.url?.contains("/live/") == true || ch.url?.contains("/play/") == true
-                                    val derivedMpdUrl = if (isLocalJio && isLiveOrPlay) {
-                                        val base = if (ch.url.contains("/live/")) ch.url.substringBefore("/live/") else ch.url.substringBefore("/play/")
-                                        "$base/live/mpd/${ch.id}.mpd"
-                                    } else null
-                                    val derivedKeyUrl = if (isLocalJio && isLiveOrPlay) {
-                                        val base = if (ch.url.contains("/live/")) ch.url.substringBefore("/live/") else ch.url.substringBefore("/play/")
-                                        "$base/live/key/${ch.id}"
-                                    } else null
-                                    ch.copy(
-                                        requiresSubscription = true,
-                                        mpdUrl = derivedMpdUrl,
-                                        licenseUrl = derivedKeyUrl
-                                    )
-                                } else ch
+                                ch.copy(requiresSubscription = requiresSub)
                             }
                         }
                     }
@@ -139,7 +123,7 @@ class OmniRepository(private val context: Context) {
                     m3u8Url = url, 
                     mpdUrl = derivedMpdUrl,
                     licenseUrl = derivedKeyUrl,
-                    requiresSubscription = isLocalJio
+                    requiresSubscription = false
                 ))
                 name = null; logo = null; group = null; language = null; url = null
             }

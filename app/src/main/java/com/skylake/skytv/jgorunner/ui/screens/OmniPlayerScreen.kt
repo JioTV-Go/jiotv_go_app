@@ -232,8 +232,13 @@ fun OmniPlayerScreen(
 
     var useDrm by remember(currentIndex) {
         val ch = activeList.getOrNull(currentIndex)
+        val isLocalJio = ch?.url?.contains("127.0.0.1") == true || ch?.url?.contains("localhost") == true
         val hasSubscriptionInfo = activeList.any { it.requiresSubscription }
-        val needsDrm = if (hasSubscriptionInfo) ch?.requiresSubscription == true else true
+        val needsDrm = if (isLocalJio) {
+            true
+        } else {
+            if (hasSubscriptionInfo) ch?.requiresSubscription == true else true
+        }
         mutableStateOf(needsDrm)
     }
     var playbackTrigger by remember(currentIndex) { mutableIntStateOf(0) }
@@ -314,16 +319,25 @@ fun OmniPlayerScreen(
 
 
     var currentResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    val trackSelector = remember { DefaultTrackSelector(context) }
+    val trackSelector = remember {
+        DefaultTrackSelector(context).apply {
+            setParameters(
+                buildUponParameters()
+                    .setForceHighestSupportedBitrate(true)
+            )
+        }
+    }
 
     val exoPlayer = remember {
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                25000, 
-                50000, 
-                1500,  
-                2500   
-            ).build()
+                2000,  // minBufferMs (Fast zapping start)
+                15000, // maxBufferMs
+                800,   // bufferForPlaybackMs
+                1200   // bufferForPlaybackAfterRebufferMs
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
@@ -511,7 +525,9 @@ fun OmniPlayerScreen(
         val maxHeight = preferenceManager.myPrefs.omniQualityMaxHeight
         val resolvedHeight = if (maxHeight <= 0) Int.MAX_VALUE else maxHeight
         trackSelector.setParameters(
-            trackSelector.buildUponParameters().setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
+            trackSelector.buildUponParameters()
+                .setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
+                .setForceHighestSupportedBitrate(true)
         )
     }
 
