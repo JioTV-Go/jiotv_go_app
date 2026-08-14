@@ -150,6 +150,9 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showAutoOpenServerDialog by remember { mutableStateOf(false) }
+    var autoOpenServerName by remember {
+        mutableStateOf(if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio")
+    }
     var hasAutoplayed by remember { mutableStateOf(false) }
 
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
@@ -162,6 +165,10 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showLogDialog by remember { mutableStateOf(false) }
     var favoriteRefreshTick by remember { mutableIntStateOf(0) }
     val favoritesStore = remember { OmniFavoritesStore(prefManager) }
+
+    LaunchedEffect(currentServer) {
+        hasAutoplayed = false
+    }
 
     LaunchedEffect(isSidebarVisible) {
         if (isSidebarVisible) {
@@ -180,8 +187,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         channels.any { !it.language.isNullOrBlank() }
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
-        channels.filter { channel ->
+    fun filterChannelList(sourceList: List<OmniChannel>): List<OmniChannel> {
+        return sourceList.filter { channel ->
             val matchesSearch = searchQuery.isEmpty() ||
                 channel.name?.contains(searchQuery, ignoreCase = true) == true ||
                 channel.group?.contains(searchQuery, ignoreCase = true) == true
@@ -202,13 +209,18 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         }
     }
 
-    fun triggerAutoplay(channelList: List<OmniChannel>) {
+    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
+        filterChannelList(channels)
+    }
+
+    fun triggerAutoplay(rawChannelList: List<OmniChannel>) {
+        val channelList = filterChannelList(rawChannelList)
         val autoFirst = prefManager.myPrefs.omniAutoplayFirstChannel
         val autoLast = prefManager.myPrefs.omniAutoplayLastChannel
         val lastPlayedUrl = prefManager.myPrefs.currChannelUrl?.trim().orEmpty()
         val lastPlayedName = prefManager.myPrefs.currChannelName?.trim().orEmpty()
 
-        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
+        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, filtered channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
 
         if (hasAutoplayed || channelList.isEmpty()) return
         if (!autoFirst && !autoLast) return
@@ -230,7 +242,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         if (targetChannel != null) {
             hasAutoplayed = true
             val targetIndex = channelList.indexOf(targetChannel).coerceAtLeast(0)
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} channels)")
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} filtered channels)")
             com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = channelList
             try {
                 com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
@@ -240,7 +252,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
             context.startActivity(intent)
         } else {
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} channels")
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} filtered channels")
         }
     }
 
@@ -485,8 +497,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
                     item {
-                        val currentAutoOpenName = if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio"
-                        OmniSettingsActionItem("Auto Open: $currentAutoOpenName", Icons.Default.Dns, enabled = true) {
+                        OmniSettingsActionItem("Auto Open: $autoOpenServerName", Icons.Default.Dns, enabled = true) {
                             showAutoOpenServerDialog = true
                         }
                     }
@@ -1104,11 +1115,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     }
 
     if (showAutoOpenServerDialog) {
-        val currentAutoOpenName = if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio"
         AutoOpenServerDialog(
-            currentAutoOpen = currentAutoOpenName,
+            currentAutoOpen = autoOpenServerName,
             onDismiss = { showAutoOpenServerDialog = false },
             onSelect = { selectedServer ->
+                autoOpenServerName = selectedServer
                 prefManager.myPrefs.omniAutoOpenServer = selectedServer
                 prefManager.savePreferences()
                 settingsUpdateTrigger++

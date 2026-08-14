@@ -18,10 +18,20 @@ class OmniMediaDrmCallback(
 ) : MediaDrmCallback {
 
     override fun executeProvisionRequest(uuid: UUID, request: ProvisionRequest): ByteArray {
-        val url = request.defaultUrl
+        val rawUrl = request.defaultUrl
+        val signedRequest = try {
+            String(request.data, Charsets.UTF_8)
+        } catch (_: Exception) {
+            android.util.Base64.encodeToString(request.data, android.util.Base64.NO_WRAP)
+        }
+        val url = if (rawUrl.contains("?")) {
+            "$rawUrl&signedRequest=$signedRequest"
+        } else {
+            "$rawUrl?signedRequest=$signedRequest"
+        }
         val okRequest = Request.Builder()
             .url(url)
-            .post(request.data.toRequestBody("application/octet-stream".toMediaType()))
+            .post("".toRequestBody("application/json".toMediaType()))
             .build()
 
         LogCollector.log("DRM Provision Request: $url")
