@@ -82,7 +82,7 @@ fun Recent_Layout(
                                         val allChannelsData = ArrayList(
                                             recentChannels.map { ch ->
                                                 val fullLogoUrl = if (ch.logoUrl.contains("http")) ch.logoUrl else "$basefinURL/jtvimage/${ch.logoUrl}"
-                                                ChannelInfo(ch.channel_url, fullLogoUrl, ch.channel_name)
+                                                ChannelInfo(ch.channel_url,ch.key_url, fullLogoUrl, ch.channel_name)
                                             }
                                         )
                                         putParcelableArrayListExtra("channel_list_data", allChannelsData)

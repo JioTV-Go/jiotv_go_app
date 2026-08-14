@@ -8,7 +8,9 @@ import android.util.Log
 import android.view.ContextThemeWrapper
 import android.widget.Toast
 import androidx.compose.animation.Animatable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -124,6 +127,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
     val coroutineScope = rememberCoroutineScope()
 
     var firstLaunch by remember { mutableStateOf(true) }
+    val GoldColor = Color(0xFFFFD700)
 
     fun isTelevision(): Boolean {
         return context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
@@ -317,9 +321,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                     ) {
                         PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                             tabs.forEachIndexed { index, tab ->
-                                
                                 var isFocused by remember { mutableStateOf(false) }
-
                                 val isActive = index == selectedTabIndex || isFocused
 
                                 Tab(
@@ -327,8 +329,23 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                                         .onFocusChanged { focusState ->
                                             isFocused = focusState.isFocused
                                         }
+                                        .scale(if (isFocused) 1.05f else 1.0f) // Subtle focus scale for TV
+                                        .border(
+                                            border = if (isFocused) BorderStroke(
+                                                2.dp,
+                                                GoldColor
+                                            ) else BorderStroke(0.dp, Color.Transparent),
+                                            shape = MaterialTheme.shapes.small
+                                        )
                                         .background(
-                                            color = if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
+                                            color = when {
+                                                isFocused -> GoldColor.copy(alpha = 0.25f)
+                                                index == selectedTabIndex -> MaterialTheme.colorScheme.primary.copy(
+                                                    alpha = 0.15f
+                                                )
+
+                                                else -> Color.Transparent
+                                            },
                                             shape = MaterialTheme.shapes.small
                                         ),
                                     selected = index == selectedTabIndex,
@@ -337,14 +354,21 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                                     },
                                     text = {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 4.dp),
+                                            modifier = Modifier.padding(
+                                                horizontal = 8.dp,
+                                                vertical = 4.dp
+                                            ),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
                                                 imageVector = tab.icon,
                                                 contentDescription = tab.text,
                                                 modifier = Modifier.size(20.dp),
-                                                tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                tint = when {
+                                                    isFocused -> GoldColor
+                                                    isActive -> MaterialTheme.colorScheme.primary
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                }
                                             )
                                             if (isActive) {
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -354,8 +378,11 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                                                     softWrap = false,
                                                     fontSize = 12.sp,
                                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                                    color = if (isFocused && index != selectedTabIndex) MaterialTheme.colorScheme.onSurface
-                                                    else MaterialTheme.colorScheme.primary
+                                                    color = when {
+                                                        isFocused -> GoldColor
+                                                        index == selectedTabIndex -> MaterialTheme.colorScheme.primary
+                                                        else -> MaterialTheme.colorScheme.onSurface
+                                                    }
                                                 )
                                             }
                                         }
@@ -364,6 +391,7 @@ fun ZoneScreen(context: Context, onNavigate: (String) -> Unit) {
                             }
                         }
                     }
+
 
 
                     // Tab Content

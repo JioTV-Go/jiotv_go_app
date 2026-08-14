@@ -20,6 +20,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -51,6 +52,12 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     val favoriteIds = remember(favoriteChannels) { favoriteChannels.map { it.channel_id }.toSet() }
     val basefinURL = tvViewModel.basefinURL
 
+    LaunchedEffect(Unit) {
+        if (filteredChannels.isEmpty() && !isLoading) {
+            tvViewModel.loadChannels(forceRefresh = false)
+        }
+    }
+
     LaunchedEffect(reloadTrigger) {
         if (reloadTrigger > 0) {
             tvViewModel.loadChannels(forceRefresh = true)
@@ -67,6 +74,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     ArrayList(filteredChannels.map { ch ->
                         ChannelInfo(
                             withQuality(context, ch.channel_url),
+                            ch.key_url,
                             "$basefinURL/jtvimage/${ch.logoUrl}",
                             ch.channel_name
                         )
@@ -74,6 +82,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                 )
                 putExtra("current_channel_index", 0)
                 putExtra("video_url", firstChannel.channel_url)
+                putExtra("key_url", firstChannel.key_url)
                 putExtra("logo_url", "$basefinURL/jtvimage/${firstChannel.logoUrl}")
                 putExtra("ch_name", firstChannel.channel_name)
                 if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -116,6 +125,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     val epgData by tvViewModel.epgData.collectAsState()
     val isEpgLoading by tvViewModel.isEpgLoading.collectAsState()
     val epgError by tvViewModel.epgError.collectAsState()
+    val GoldColor = Color(0xFFFFD700)
 
     // UI RENDERING
     when {
@@ -160,7 +170,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
-                    
+
                     ElevatedCard(
                         onClick = { tvViewModel.loadChannels(forceRefresh = true) },
                         colors = CardDefaults.elevatedCardColors(
@@ -190,14 +200,23 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // CATEGORY CHIPS
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(sortedCategories) { categoryName ->
                         val categoryId = categoryMap[categoryName]
                         val isSelected = categoryId != null && selectedCategoryIds.contains(categoryId)
+                        val isChipSelected = if (categoryName == "All") selectedCategoryIds.isEmpty() else isSelected
+
+                        var isFocused by remember { mutableStateOf(false) }
+                        val GoldColor = Color(0xFFFFD700)
 
                         FilterChip(
+                            modifier = Modifier.onFocusChanged { focusState ->
+                                isFocused = focusState.isFocused
+                            },
                             onClick = {
                                 selectedCategoryIds = if (categoryName == "All") {
                                     emptySet()
@@ -210,8 +229,16 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                                 tvViewModel.applyFilters(newCategoryIds = selectedCategoryIds)
                             },
                             label = { Text(categoryName) },
-                            selected = if (categoryName == "All") selectedCategoryIds.isEmpty() else isSelected,
-                            leadingIcon = if (isSelected || (categoryName == "All" && selectedCategoryIds.isEmpty())) {
+                            selected = isChipSelected,
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isChipSelected,
+                                borderColor = if (isFocused) GoldColor else MaterialTheme.colorScheme.outline,
+                                selectedBorderColor = if (isFocused) GoldColor else MaterialTheme.colorScheme.primary,
+                                borderWidth = if (isFocused) 2.dp else 1.dp,
+                                selectedBorderWidth = if (isFocused) 2.dp else 1.dp
+                            ),
+                            leadingIcon = if (isChipSelected) {
                                 { Icon(Icons.Filled.Done, null, modifier = Modifier.size(FilterChipDefaults.IconSize)) }
                             } else null
                         )
@@ -219,8 +246,8 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                 }
 
                 // EPG Component
-                if (isEpgLoading || epgData != null || epgError) {
-                Column(
+                if (tvViewModel.preferenceManager.myPrefs.showEPG && (isEpgLoading || epgData != null || epgError)) {
+                    Column(
                     modifier = Modifier
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                         .fillMaxWidth()
@@ -308,17 +335,21 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     favoriteIds = favoriteIds,
                     basefinURL = basefinURL,
                     onSelectedChannelChanged = { channel ->
-                        tvViewModel.loadEpg(channel.channel_id)
+                        if (tvViewModel.preferenceManager.myPrefs.showEPG) {
+                            tvViewModel.loadEpg(channel.channel_id)
+                        }
                     },
                     onChannelClick = { channel, index ->
                         val intent = Intent(context, ExoPlayJet::class.java).apply {
                             putExtra("video_url", channel.channel_url)
+                            putExtra("key_url", channel.key_url)
                             putExtra("zone", "TV")
                             putParcelableArrayListExtra(
                                 "channel_list_data",
                                 ArrayList(filteredChannels.map { ch ->
                                     ChannelInfo(
                                         withQuality(context, ch.channel_url),
+                                        ch.key_url,
                                         "$basefinURL/jtvimage/${ch.logoUrl}",
                                         ch.channel_name
                                     )

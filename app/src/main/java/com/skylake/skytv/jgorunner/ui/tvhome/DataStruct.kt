@@ -21,6 +21,8 @@ data class Channel(
     val channel_name: String = "",
     @SerializedName("channel_url")
     val channel_url: String = "",
+    @SerializedName("key_url")
+    val key_url: String = "",
     @SerializedName("logoUrl")
     val logoUrl: String = "",
     @SerializedName("channelCategoryId")

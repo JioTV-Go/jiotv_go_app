@@ -36,6 +36,9 @@ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.skylake.skytv.jgorunner.activities.ChannelInfo
 import com.skylake.skytv.jgorunner.services.player.ExoPlayJet
+import com.skylake.skytv.jgorunner.ui.screens.AppStartTracker
+import com.skylake.skytv.jgorunner.utils.withQuality
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalGlideComposeApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -50,10 +53,44 @@ fun Favorites_Layout(
     var isSortModeActive by remember { mutableStateOf(false) }
     var movingChannelId by remember { mutableStateOf<String?>(null) }
 
-    
     BackHandler(enabled = isSortModeActive) {
         isSortModeActive = false
         movingChannelId = null
+    }
+
+    LaunchedEffect(favoriteChannels) {
+        if (favoriteChannels.isNotEmpty() && viewModel.preferenceManager.myPrefs.startTvAutomatically && !AppStartTracker.shouldPlayChannel) {
+            val firstChannel = favoriteChannels.first()
+            val intent = Intent(context, ExoPlayJet::class.java).apply {
+                putExtra("zone", "TV")
+                putParcelableArrayListExtra(
+                    "channel_list_data",
+                    ArrayList(favoriteChannels.map { ch ->
+                        val fullLogoUrl = if (ch.logoUrl.contains("http")) ch.logoUrl else "$basefinURL/jtvimage/${ch.logoUrl}"
+                        ChannelInfo(
+                            withQuality(context, ch.channel_url),
+                            ch.key_url,
+                            fullLogoUrl,
+                            ch.channel_name
+                        )
+                    })
+                )
+                putExtra("current_channel_index", 0)
+                putExtra("video_url", firstChannel.channel_url)
+                putExtra("key_url", firstChannel.key_url)
+
+                val firstLogoUrl = if (firstChannel.logoUrl.contains("http")) firstChannel.logoUrl else "$basefinURL/jtvimage/${firstChannel.logoUrl}"
+                putExtra("logo_url", firstLogoUrl)
+                putExtra("ch_name", firstChannel.channel_name)
+
+                if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            delay(500)
+            context.startActivity(intent)
+            viewModel.saveToRecents(firstChannel)
+            AppStartTracker.shouldPlayChannel = true
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -80,7 +117,6 @@ fun Favorites_Layout(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        
                         Icon(
                             imageVector = Icons.Default.Star,
                             contentDescription = null,
@@ -90,7 +126,6 @@ fun Favorites_Layout(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        
                         Text(
                             text = "No favorite channels yet",
                             style = MaterialTheme.typography.titleMedium,
@@ -99,7 +134,6 @@ fun Favorites_Layout(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        
                         Text(
                             text = "Go to the channel list and long press a channel to add it!",
                             style = MaterialTheme.typography.bodyMedium,
@@ -121,7 +155,6 @@ fun Favorites_Layout(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier
                             .fillMaxSize()
-                            
                             .pointerInput(isSortModeActive) {
                                 if (!isSortModeActive) return@pointerInput
 
@@ -129,7 +162,6 @@ fun Favorites_Layout(
 
                                 detectDragGesturesAfterLongPress(
                                     onDragStart = { offset ->
-                                        
                                         gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
                                             offset.x.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
                                                     offset.y.toInt() in item.offset.y..(item.offset.y + item.size.height)
@@ -142,17 +174,15 @@ fun Favorites_Layout(
                                         change.consume()
                                         val currentDraggingIndex = draggingIndex ?: return@detectDragGesturesAfterLongPress
 
-                                        
                                         val currentOffset = change.position
                                         val targetItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
                                             currentOffset.x.toInt() in item.offset.x..(item.offset.x + item.size.width) &&
                                                     currentOffset.y.toInt() in item.offset.y..(item.offset.y + item.size.height)
                                         }
 
-                                        
                                         if (targetItem != null && targetItem.index != currentDraggingIndex) {
                                             viewModel.swapFavoriteChannels(currentDraggingIndex, targetItem.index)
-                                            draggingIndex = targetItem.index 
+                                            draggingIndex = targetItem.index
                                         }
                                     },
                                     onDragEnd = {
@@ -179,7 +209,6 @@ fun Favorites_Layout(
                                     .height(120.dp)
                                     .focusRequester(focusRequester)
                                     .onFocusChanged { focusState -> isFocused = focusState.isFocused }
-                                    
                                     .onPreviewKeyEvent { keyEvent ->
                                         if (isSortModeActive && isBeingMoved && keyEvent.type == KeyEventType.KeyDown) {
                                             when (keyEvent.nativeKeyEvent.keyCode) {
@@ -208,7 +237,6 @@ fun Favorites_Layout(
                                     .combinedClickable(
                                         onClick = {
                                             if (isSortModeActive) {
-                                                
                                                 if (movingChannelId == null) {
                                                     movingChannelId = channel.channel_id
                                                 } else if (movingChannelId == channel.channel_id) {
@@ -221,14 +249,14 @@ fun Favorites_Layout(
                                                     }
                                                 }
                                             } else {
-                                                
                                                 val intent = Intent(context, ExoPlayJet::class.java).apply {
-                                                    putExtra("video_url", "$basefinURL/live/${channel.channel_id}")
+                                                    putExtra("video_url", channel.channel_url)
+                                                    putExtra("key_url", channel.key_url)
                                                     putExtra("zone", "TV")
                                                     val allChannelsData = ArrayList(
                                                         favoriteChannels.map { ch ->
                                                             val fullLogoUrl = if (ch.logoUrl.contains("http")) ch.logoUrl else "$basefinURL/jtvimage/${ch.logoUrl}"
-                                                            ChannelInfo(ch.channel_url, fullLogoUrl, ch.channel_name)
+                                                            ChannelInfo(ch.channel_url,ch.key_url, fullLogoUrl, ch.channel_name)
                                                         }
                                                     )
                                                     putParcelableArrayListExtra("channel_list_data", allChannelsData)
@@ -241,8 +269,6 @@ fun Favorites_Layout(
                                                 viewModel.saveToRecents(channel)
                                             }
                                         },
-                                        
-                                        
                                         onLongClick = if (!isSortModeActive) {
                                             {
                                                 viewModel.toggleFavorite(channel)
@@ -293,7 +319,6 @@ fun Favorites_Layout(
             }
         }
 
-        
         IconButton(
             onClick = {
                 isSortModeActive = !isSortModeActive

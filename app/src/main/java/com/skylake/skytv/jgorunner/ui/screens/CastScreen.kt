@@ -264,7 +264,7 @@ private class CustomWebViewClient(
                 }
             }
 
-            val modifiedUrl = url.replace("/play/", "/live/mpd/") //+ ".m3u8"
+            val modifiedUrl = url.replace("/play/", "/live/mpd/").substringBefore("?")//+ ".m3u8"
             Log.d(TAG2, "Modified URL for intent: $modifiedUrl")
 
             val newPlayerURL = formatVideoUrl(modifiedUrl)

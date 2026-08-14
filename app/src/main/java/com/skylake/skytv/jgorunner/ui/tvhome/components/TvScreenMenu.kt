@@ -84,6 +84,9 @@ fun TvScreenMenu(
     var showCustomUrlInputDialog by remember { mutableStateOf(false) }
     var customUrl by remember { mutableStateOf(preferenceManager.myPrefs.custURL ?: "") }
     var showAllTabs by remember { mutableStateOf(preferenceManager.myPrefs.showAllTabs) }
+    
+    var showEpg by remember { mutableStateOf(preferenceManager.myPrefs.showEPG) }
+
     var startTvAutomatically by remember { mutableStateOf(preferenceManager.myPrefs.startTvAutomatically) }
     var startTvAutoDelay by remember { mutableStateOf(preferenceManager.myPrefs.startTvAutoDelay) }
     var startTvAutoDelayTime by remember { mutableIntStateOf(preferenceManager.myPrefs.startTvAutoDelayTime) }
@@ -455,6 +458,7 @@ fun TvScreenMenu(
                 }
 
                 if (showPlaylist) {
+                    // Show TABs Checkbox
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
@@ -462,6 +466,15 @@ fun TvScreenMenu(
                         Checkbox(checked = showAllTabs, onCheckedChange = { showAllTabs = it })
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Show TABs")
+                    }
+
+                   Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(checked = showEpg, onCheckedChange = { showEpg = it })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Show EPG")
                     }
                 }
 
@@ -568,6 +581,8 @@ fun TvScreenMenu(
                                     myPrefs.selectedRemoteNavTV = "0"
                                     myPrefs.showPLAYLIST = false
                                     myPrefs.showAllTabs = false
+                                    myPrefs.showEPG = false
+
                                     myPrefs.startTvAutomatically = false
                                     myPrefs.startTvAutoDelay = false
                                     myPrefs.startTvAutoDelayTime = 0
@@ -597,6 +612,9 @@ fun TvScreenMenu(
                                         myPrefs.showPLAYLIST = showPlaylist
                                     }
                                     myPrefs.showAllTabs = showAllTabs
+
+                                    myPrefs.showEPG = showEpg
+
                                     myPrefs.startTvAutomatically = startTvAutomatically
                                     myPrefs.startTvAutoDelay = startTvAutoDelay
                                     myPrefs.startTvAutoDelayTime = startTvAutoDelayTime

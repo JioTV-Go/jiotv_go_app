@@ -3,18 +3,22 @@ package com.skylake.skytv.jgorunner.ui.tvhome
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import androidx.core.content.edit
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import androidx.core.content.edit
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 class TvViewModel(application: Application) : AndroidViewModel(application) {
     val preferenceManager = SkySharedPref.getInstance(application)
@@ -26,6 +30,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     val basefinURL = "http://localhost:$localPort"
 
     private val _allChannels = MutableStateFlow<List<Channel>>(emptyList())
+    val allChannels: StateFlow<List<Channel>> = _allChannels.asStateFlow()
 
     private val _filteredChannels = MutableStateFlow<List<Channel>>(emptyList())
     val filteredChannels: StateFlow<List<Channel>> = _filteredChannels.asStateFlow()
@@ -51,141 +56,124 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val _epgError = MutableStateFlow(false)
     val epgError: StateFlow<Boolean> = _epgError.asStateFlow()
 
+    
+    private var loadChannelsJob: Job? = null
+
     init {
         loadFavoriteChannels()
         loadRecentChannels()
         loadChannels(forceRefresh = false)
     }
+
     fun loadChannels(forceRefresh: Boolean = false) {
-        viewModelScope.launch {
+        
+        loadChannelsJob?.cancel()
+
+        loadChannelsJob = viewModelScope.launch(Dispatchers.IO) {
             
-            if (_allChannels.value.isEmpty()) {
-                _isLoading.value = true
+            if (!forceRefresh && _allChannels.value.isNotEmpty()) {
+                _isLoading.value = false
+                _isError.value = false
+                return@launch
             }
+
+            _isLoading.value = true
             _isError.value = false
 
-            withContext(Dispatchers.IO) {
-                
-                if (!forceRefresh) {
-                    val cachedJson = channelCachePrefs.getString("channels_json", null)
-                    if (!cachedJson.isNullOrEmpty()) {
-                        try {
-                            val cachedResponse = gson.fromJson(cachedJson, ChannelResponse::class.java)
-                            if (!cachedResponse.result.isNullOrEmpty()) {
-                                _allChannels.value = cachedResponse.result
-                                applyFilters(cachedResponse.result)
+            var hasCache = false
 
-                                
-                                _isLoading.value = false
-                            }
-                        } catch (e: Exception) {
-                            Log.e("TvViewModel", "Error parsing cache", e)
-                            channelCachePrefs.edit { remove("channels_json") }
-                        }
-                    }
-                }
-
-                
-                if (forceRefresh || _allChannels.value.isEmpty()) {
-                    _isLoading.value = true
-                }
-                
-                try {
-                    val response = ChannelUtils.fetchChannels("$basefinURL/channels")
-                    if (response != null && !response.result.isNullOrEmpty()) {
-                        _allChannels.value = response.result
-
-                        
-                        channelCachePrefs.edit {
-                            putString("channels_json", gson.toJson(response))
-                        }
-
-                        applyFilters(response.result)
-                        _isError.value = false
-                    } else if (_allChannels.value.isEmpty()) {
-                        
-                        _isError.value = true
-                    }
-                } catch (e: Exception) {
-                    Log.e("TvViewModel", "Network error while fetching channels", e)
-                    
-                    if (_allChannels.value.isEmpty()) {
-                        _isError.value = true
-                    }
-                } finally {
-                    _isLoading.value = false
-                }
-            }
-        }
-    }
-
-    fun loadChannelsw(forceRefresh: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isError.value = false
-
+            
             if (!forceRefresh) {
                 val cachedJson = channelCachePrefs.getString("channels_json", null)
                 if (!cachedJson.isNullOrEmpty()) {
                     try {
                         val cachedResponse = gson.fromJson(cachedJson, ChannelResponse::class.java)
-                        _allChannels.value = cachedResponse.result
-                        applyFilters(cachedResponse.result)
-                        _isLoading.value = false 
+                        if (cachedResponse.result.isNotEmpty()) {
+                            _allChannels.value = cachedResponse.result
+                            suspendApplyFilters(cachedResponse.result)
+                            hasCache = true
+                            _isLoading.value = false
+                        }
                     } catch (e: Exception) {
+                        Log.e("TvViewModel", "Error parsing cache", e)
                         channelCachePrefs.edit { remove("channels_json") }
                     }
                 }
             }
 
-            if (forceRefresh || _allChannels.value.isEmpty()) {
-                _isLoading.value = true
-            }
+            
+            val maxRetries = 6
+            var success = false
 
-            try {
-                val response = ChannelUtils.fetchChannels("$basefinURL/channels")
-                if (response != null && response.result.isNotEmpty()) {
-                    _allChannels.value = response.result
+            for (attempt in 1..maxRetries) {
+                if (!isActive) return@launch
 
-                    channelCachePrefs.edit {
-                        putString("channels_json", gson.toJson(response))
+                try {
+                    val response = ChannelUtils.fetchChannels("$basefinURL/channels")
+                    if (response != null && response.result.isNotEmpty()) {
+                        _allChannels.value = response.result
+
+                        channelCachePrefs.edit {
+                            putString("channels_json", gson.toJson(response))
+                        }
+
+                        suspendApplyFilters(response.result)
+                        _isError.value = false
+                        success = true
+                        break 
                     }
-
-                    applyFilters(response.result)
-                } else if (_allChannels.value.isEmpty()) {
-                    _isError.value = true
+                } catch (e: Exception) {
+                    Log.e("TvViewModel", "Channel load attempt $attempt/$maxRetries failed: ${e.localizedMessage}")
                 }
-            } catch (e: Exception) {
-                Log.e("TvViewModel", "Network error", e)
-                if (_allChannels.value.isEmpty()) _isError.value = true
-            } finally {
-                _isLoading.value = false
+
+                
+                if (attempt < maxRetries && isActive) {
+                    delay((1000L + (attempt * 500L)).milliseconds)
+                }
             }
+
+            
+            if (!success && !hasCache && _allChannels.value.isEmpty()) {
+                _isError.value = true
+            } else {
+                _isError.value = false
+            }
+
+            _isLoading.value = false
         }
     }
 
-    fun applyFilters(channels: List<Channel> = _allChannels.value, newCategoryIds: Set<Int>? = null) {
-        viewModelScope.launch(Dispatchers.Default) {
-            
-            val activeCategoryIds = if (newCategoryIds != null) {
-                newCategoryIds.toList().takeIf { it.isNotEmpty() }
-            } else {
-                preferenceManager.myPrefs.filterCI
-                    ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
-                    ?.takeIf { it.isNotEmpty() }
-            }
-
-            val activeLanguageIds = preferenceManager.myPrefs.filterLI
+    private suspend fun suspendApplyFilters(
+        channels: List<Channel> = _allChannels.value,
+        newCategoryIds: Set<Int>? = null
+    ) {
+        val activeCategoryIds = if (newCategoryIds != null) {
+            newCategoryIds.toList().takeIf { it.isNotEmpty() }
+        } else {
+            preferenceManager.myPrefs.filterCI
                 ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
                 ?.takeIf { it.isNotEmpty() }
+        }
 
-            val tempResponse = ChannelResponse(result = channels)
-            val filtered = ChannelUtils.filterChannels(
+        val activeLanguageIds = preferenceManager.myPrefs.filterLI
+            ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+            ?.takeIf { it.isNotEmpty() }
+
+        val tempResponse = ChannelResponse(result = channels)
+        val filtered = withContext(Dispatchers.Default) {
+            ChannelUtils.filterChannels(
                 tempResponse,
                 categoryIds = activeCategoryIds,
                 languageIds = activeLanguageIds
             )
+        }
 
-            _filteredChannels.value = filtered
+        _filteredChannels.value = filtered
+    }
+
+    fun applyFilters(channels: List<Channel> = _allChannels.value, newCategoryIds: Set<Int>? = null) {
+        viewModelScope.launch {
+            suspendApplyFilters(channels, newCategoryIds)
         }
     }
 
@@ -257,8 +245,6 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    
-
     fun loadFavoriteChannels() {
         viewModelScope.launch(Dispatchers.IO) {
             val json = appPrefs.getString("favorites_json", "[]")
@@ -274,12 +260,12 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             val existingIndex = currentFavs.indexOfFirst { it.channel_id == channel.channel_id }
 
             if (existingIndex != -1) {
-                currentFavs.removeAt(existingIndex) 
+                currentFavs.removeAt(existingIndex)
             } else {
-                currentFavs.add(0, channel) 
+                currentFavs.add(0, channel)
             }
 
-            appPrefs.edit().putString("favorites_json", gson.toJson(currentFavs)).apply()
+            appPrefs.edit { putString("favorites_json", gson.toJson(currentFavs)) }
             _favoriteChannels.value = currentFavs
         }
     }
@@ -320,6 +306,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 _epgData.value = null
                 _epgError.value = true
+                Log.d("TvViewModel", e.toString())
             } finally {
                 _isEpgLoading.value = false
             }

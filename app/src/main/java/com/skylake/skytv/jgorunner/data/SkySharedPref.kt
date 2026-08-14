@@ -201,6 +201,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("lastSelectedCategoriesExp") var lastSelectedCategoriesExp: String? = "",
         @SharedPrefKey("setupPending") var setupPending: Boolean = true,
         @SharedPrefKey("enable_pip") var enablePip: Boolean = false,
+        @SharedPrefKey("showEPG") var showEPG: Boolean = true,
 
         // Omni TV layout prefs
         @SharedPrefKey("freeJioCatchup") var freeJioCatchup: Boolean = false,
