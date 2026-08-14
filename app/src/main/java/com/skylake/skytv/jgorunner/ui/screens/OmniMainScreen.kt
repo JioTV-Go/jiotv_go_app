@@ -108,7 +108,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     }
     val freeJioServer = remember(port) {
         OmniServer(
-            name = "Free Jio",
+            name = "Jio",
             url = "http://127.0.0.1:$port",
             isFavoriteServer = false
         )
@@ -116,7 +116,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val availableServers = remember(favoriteServer, freeJioServer) {
         listOf(favoriteServer, freeJioServer)
     }
-    var currentServer by remember { mutableStateOf(freeJioServer) }
+    val autoOpenPref = prefManager.myPrefs.omniAutoOpenServer
+    val initialServer = remember(autoOpenPref, favoriteServer, freeJioServer) {
+        if (autoOpenPref == FAVORITES_SERVER_URL || autoOpenPref?.equals("Favorites", ignoreCase = true) == true) {
+            favoriteServer
+        } else {
+            freeJioServer
+        }
+    }
+    var currentServer by remember { mutableStateOf(initialServer) }
     var fullChannelList by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
 
     var channels by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
@@ -141,6 +149,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showAutoOpenServerDialog by remember { mutableStateOf(false) }
+    var hasAutoplayed by remember { mutableStateOf(false) }
 
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
     var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
@@ -192,10 +202,57 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         }
     }
 
+    fun triggerAutoplay(channelList: List<OmniChannel>) {
+        val autoFirst = prefManager.myPrefs.omniAutoplayFirstChannel
+        val autoLast = prefManager.myPrefs.omniAutoplayLastChannel
+        val lastPlayedUrl = prefManager.myPrefs.currChannelUrl?.trim().orEmpty()
+        val lastPlayedName = prefManager.myPrefs.currChannelName?.trim().orEmpty()
+
+        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
+
+        if (hasAutoplayed || channelList.isEmpty()) return
+        if (!autoFirst && !autoLast) return
+
+        val targetChannel = if (autoLast && (lastPlayedUrl.isNotBlank() || lastPlayedName.isNotBlank())) {
+            channelList.find { ch ->
+                (lastPlayedName.isNotBlank() && ch.name?.trim().equals(lastPlayedName, ignoreCase = true)) ||
+                (lastPlayedUrl.isNotBlank() && (
+                    ch.url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                    ch.m3u8Url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                    ch.mpdUrl?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                    (ch.id != null && lastPlayedUrl.contains(ch.id!!))
+                ))
+            } ?: if (autoFirst) channelList.firstOrNull() else null
+        } else if (autoFirst) {
+            channelList.firstOrNull()
+        } else null
+
+        if (targetChannel != null) {
+            hasAutoplayed = true
+            val targetIndex = channelList.indexOf(targetChannel).coerceAtLeast(0)
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} channels)")
+            com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = channelList
+            try {
+                com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
+            } catch (_: Exception) {}
+            val intent = Intent(context, OmniPlayerActivity::class.java).apply {
+                putExtra("channel_index", targetIndex)
+            }
+            context.startActivity(intent)
+        } else {
+            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} channels")
+        }
+    }
+
     // Load channels on server change or favorites refresh
     LaunchedEffect(currentServer, favoriteRefreshTick) {
         if (currentServer.url == FAVORITES_SERVER_URL) {
             com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loading Favorites server channels")
+            if (fullChannelList.isEmpty()) {
+                try {
+                    fullChannelList = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
+                } catch (_: Exception) {}
+            }
             val favs = favoritesStore.load()
             if (fullChannelList.isNotEmpty()) {
                 val favMap = favs.associateBy { it.name }
@@ -219,6 +276,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             isLoading = false
             errorMessage = null
             com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loaded ${channels.size} favorite channels")
+            triggerAutoplay(channels)
         } else {
             isLoading = true
             errorMessage = null
@@ -232,6 +290,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Channels fetch returned empty list.")
                 } else {
                     com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Successfully loaded ${fetched.size} channels from ${currentServer.name}")
+                    triggerAutoplay(fetched)
                 }
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Failed to load channels."
@@ -320,7 +379,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Free Jio Settings",
+                            text = "Omni UI Settings",
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
                             fontSize = 12.sp
                         )
@@ -426,6 +485,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
                     item {
+                        val currentAutoOpenName = if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio"
+                        OmniSettingsActionItem("Auto Open: $currentAutoOpenName", Icons.Default.Dns, enabled = true) {
+                            showAutoOpenServerDialog = true
+                        }
+                    }
+                    item {
                         var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
                         OmniSettingsToggle("Autoplay 1st CH", checked) {
                             checked = it
@@ -482,6 +547,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.darkMODE = checked
                             prefManager.savePreferences()
                             (context as? com.skylake.skytv.jgorunner.activities.MainActivity)?.isSwitchDarkMode = checked
+                        }
+                    }
+                    item {
+                        var autobootChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoStartAppOnBoot) }
+                        OmniSettingsToggle("Autostart on Boot", autobootChecked) { checked ->
+                            autobootChecked = checked
+                            prefManager.myPrefs.omniAutoStartAppOnBoot = checked
+                            prefManager.savePreferences()
+                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autostart on Boot set to $checked")
                         }
                     }
                     item {
@@ -668,7 +742,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 }
                             }
                             Text(
-                                text = "Free Jio",
+                                text = "Jio",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 8.dp)
@@ -887,7 +961,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Long-press any channel on Free Jio to add it to your favorites.",
+                                text = "Long-press any channel on Jio to add it to your favorites.",
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 fontSize = 12.sp,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -949,6 +1023,9 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 channel = channel,
                                 modifier = if (index == 0) Modifier.focusRequester(firstChannelFocusRequester) else Modifier,
                                 onSelected = {
+                                    prefManager.myPrefs.currChannelName = channel.name
+                                    prefManager.myPrefs.currChannelUrl = channel.url ?: channel.m3u8Url ?: channel.mpdUrl
+                                    prefManager.savePreferences()
                                     if (freeJioCatchup) {
                                         catchupChannelTarget = channel
                                     } else {
@@ -1022,6 +1099,21 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 prefManager.myPrefs.omniSelectedLanguages = gson.toJson(it)
                 prefManager.savePreferences()
                 showLanguageDialog = false
+            }
+        )
+    }
+
+    if (showAutoOpenServerDialog) {
+        val currentAutoOpenName = if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio"
+        AutoOpenServerDialog(
+            currentAutoOpen = currentAutoOpenName,
+            onDismiss = { showAutoOpenServerDialog = false },
+            onSelect = { selectedServer ->
+                prefManager.myPrefs.omniAutoOpenServer = selectedServer
+                prefManager.savePreferences()
+                settingsUpdateTrigger++
+                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Auto Open Server set to $selectedServer")
+                showAutoOpenServerDialog = false
             }
         )
     }
@@ -2168,6 +2260,95 @@ fun OmniServerListItem(
         }
     }
 }
+
+@Composable
+fun AutoOpenServerDialog(
+    currentAutoOpen: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val servers = listOf("Jio", "Favorites")
+    var selected by remember { mutableStateOf(if (currentAutoOpen.equals("Favorites", ignoreCase = true) || currentAutoOpen == "favorite://omni") "Favorites" else "Jio") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Auto Open Server", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(
+                    "Choose which server opens automatically when launching the Omni UI:",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                servers.forEach { serverName ->
+                    val isSelected = selected == serverName
+                    var isItemFocused by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .onFocusChanged { isItemFocused = it.isFocused }
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isItemFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                1.dp,
+                                if (isItemFocused) MaterialTheme.colorScheme.primary
+                                else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                selected = serverName
+                                onSelect(serverName)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (serverName == "Favorites") Icons.Default.Star else Icons.Default.Tv,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = serverName,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                selected = serverName
+                                onSelect(serverName)
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        textContentColor = MaterialTheme.colorScheme.onBackground,
+        titleContentColor = MaterialTheme.colorScheme.onBackground
+    )
+}
+
 
 
 

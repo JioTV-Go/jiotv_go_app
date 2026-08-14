@@ -230,7 +230,9 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("omniAnimationEnabled") var omniAnimationEnabled: Boolean = true,
         @SharedPrefKey("omni_quality_max_height") var omniQualityMaxHeight: Int = 0,
         @SharedPrefKey("omni_selected_categories") var omniSelectedCategories: String? = "[]",
-        @SharedPrefKey("omni_selected_languages") var omniSelectedLanguages: String? = "[]"
+        @SharedPrefKey("omni_selected_languages") var omniSelectedLanguages: String? = "[]",
+        @SharedPrefKey("omni_autostart_app_boot") var omniAutoStartAppOnBoot: Boolean = false,
+        @SharedPrefKey("omni_auto_open_server") var omniAutoOpenServer: String? = "Jio"
     )
 
 

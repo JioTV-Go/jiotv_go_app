@@ -435,6 +435,10 @@ fun OmniPlayerScreen(
                 ch.m3u8Url ?: ch.url ?: ""
             }
 
+            preferenceManager.myPrefs.currChannelName = ch.name
+            preferenceManager.myPrefs.currChannelUrl = rawPlaybackUrl
+            preferenceManager.savePreferences()
+
             // Normalize playback URL using HelperUtils.normalizePlaybackUrl
             var playbackUrl = com.skylake.skytv.jgorunner.utils.normalizePlaybackUrl(
                 context = context,
