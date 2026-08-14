@@ -499,7 +499,7 @@ class MainActivity : FragmentActivity() {
                                 OmniMainScreen(
                                     context = this@MainActivity,
                                     onNavigate = { title ->
-                                        currentScreen = if (title == "back") "Landing" else title
+                                        currentScreen = if (title == "back") "Home" else title
                                     }
                                 )
                             }
