@@ -340,6 +340,7 @@ fun buildChannelInfoWindow(
     val list = ArrayList(slice.map { ch ->
         com.skylake.skytv.jgorunner.activities.ChannelInfo(
             com.skylake.skytv.jgorunner.utils.withQuality(context, ch.channel_url),
+            null,
             if (ch.logoUrl.startsWith("http")) ch.logoUrl else "$basefinURL/jtvimage/${ch.logoUrl}",
             ch.channel_name
         )
