@@ -64,6 +64,7 @@ import com.skylake.skytv.jgorunner.activities.OmniPlayerActivity
 import com.skylake.skytv.jgorunner.activities.WebPlayerActivity
 import com.skylake.skytv.jgorunner.data.OmniRepository
 import com.skylake.skytv.jgorunner.data.SkySharedPref
+import com.skylake.skytv.jgorunner.data.OmniFavoritesStore
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
 import com.skylake.skytv.jgorunner.ui.tvhome.EpgProgram
 import com.skylake.skytv.jgorunner.ui.tvhome.EpgResponse
@@ -99,8 +100,16 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchFocused by remember { mutableStateOf(false) }
 
-    var selectedCategories by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedLanguages by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedCategories by remember {
+        val json = prefManager.myPrefs.omniSelectedCategories ?: "[]"
+        val type = object : com.google.gson.reflect.TypeToken<Set<String>>() {}.type
+        mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
+    }
+    var selectedLanguages by remember {
+        val json = prefManager.myPrefs.omniSelectedLanguages ?: "[]"
+        val type = object : com.google.gson.reflect.TypeToken<Set<String>>() {}.type
+        mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
+    }
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -113,6 +122,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showImportDialog by remember { mutableStateOf(false) }
     var settingsUpdateTrigger by remember { mutableIntStateOf(0) }
     var showLogDialog by remember { mutableStateOf(false) }
+    var showFavoritesOnly by remember { mutableStateOf(false) }
+    var favoriteRefreshTick by remember { mutableIntStateOf(0) }
+    val favoritesStore = remember { OmniFavoritesStore(prefManager) }
+
+    LaunchedEffect(isSidebarVisible) {
+        if (isSidebarVisible) {
+            favoriteRefreshTick++
+        }
+    }
 
 
 
@@ -127,7 +145,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         channels.any { !it.language.isNullOrBlank() }
     }
 
-    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
+    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly, showFavoritesOnly, favoriteRefreshTick) {
+        val favs = favoritesStore.load().map { it.name }.toSet()
         channels.filter { channel ->
             val matchesSearch = searchQuery.isEmpty() ||
                 channel.name?.contains(searchQuery, ignoreCase = true) == true ||
@@ -144,8 +163,9 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
 
             val matchesFreeOnly = !freeOnly || !channel.requiresSubscription
+            val matchesFavorites = !showFavoritesOnly || favs.contains(channel.name)
 
-            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
+            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly && matchesFavorites
         }
     }
 
@@ -301,9 +321,20 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         OmniSettingsActionItem("Language Filter", Icons.Default.Language, enabled = hasLanguages) { showLanguageDialog = true }
                     }
                     item {
+                        var checked by remember(favoriteRefreshTick) { mutableStateOf(showFavoritesOnly) }
+                        OmniSettingsToggle("Favorites Only", checked) {
+                            checked = it
+                            showFavoritesOnly = it
+                        }
+                    }
+                    item {
                         OmniSettingsActionItem("Clear Filters", Icons.Default.FilterAltOff, enabled = true) {
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
+                            showFavoritesOnly = false
+                            prefManager.myPrefs.omniSelectedCategories = "[]"
+                            prefManager.myPrefs.omniSelectedLanguages = "[]"
+                            prefManager.savePreferences()
                         }
                     }
 
@@ -384,6 +415,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniEnableSwipeGestures = true
                             prefManager.myPrefs.omniEnableDoubleTapSeek = true
                             prefManager.myPrefs.omniAnimationEnabled = true
+                            prefManager.myPrefs.omniSelectedCategories = "[]"
+                            prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
 
                             freeOnly = true
@@ -391,6 +424,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             isDarkMode = true
                             selectedCategories = emptySet()
                             selectedLanguages = emptySet()
+                            showFavoritesOnly = false
                             settingsUpdateTrigger++
 
                             Toast.makeText(context, "Settings reset to defaults", Toast.LENGTH_SHORT).show()
@@ -555,6 +589,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 modifier = Modifier.padding(horizontal = 8.dp)
                             )
 
+                            /*
                             var isImportFocused by remember { mutableStateOf(false) }
                             IconButton(
                                 onClick = { showImportDialog = true },
@@ -571,6 +606,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
+                            */
 
 
 
@@ -832,6 +868,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             onDismiss = { showCategoryDialog = false },
             onConfirm = {
                 selectedCategories = it
+                prefManager.myPrefs.omniSelectedCategories = gson.toJson(it)
+                prefManager.savePreferences()
                 showCategoryDialog = false
             }
         )
@@ -851,6 +889,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             onDismiss = { showLanguageDialog = false },
             onConfirm = {
                 selectedLanguages = it
+                prefManager.myPrefs.omniSelectedLanguages = gson.toJson(it)
+                prefManager.savePreferences()
                 showLanguageDialog = false
             }
         )

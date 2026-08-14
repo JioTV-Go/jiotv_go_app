@@ -245,6 +245,16 @@ fun OmniPlayerScreen(
     var drmRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
     var catchupRetryCount by remember(currentIndex) { mutableIntStateOf(0) }
 
+    var isInPipMode by remember { mutableStateOf(com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.isInPipMode) }
+    DisposableEffect(Unit) {
+        com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.setOnPipModeChanged { pip ->
+            isInPipMode = pip
+        }
+        onDispose {
+            com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.setOnPipModeChanged(null)
+        }
+    }
+
     val isMovieOrVod = remember(activeChannel) {
         val ch = activeChannel ?: return@remember false
         ch.name?.contains("[Catchup]", ignoreCase = true) == true || ch.url?.contains("/catchup/") == true
@@ -672,12 +682,34 @@ fun OmniPlayerScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .then(swipeModifier)
-            .pointerInput(isMovieOrVod) {
+    if (isInPipMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        resizeMode = currentResizeMode
+                        keepScreenOn = true
+                    }
+                },
+                update = { view ->
+                    view.resizeMode = currentResizeMode
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .then(swipeModifier)
+                .pointerInput(isMovieOrVod) {
                 detectTapGestures(
                     onTap = {
                         if (showChannelOverlay) {
@@ -1019,6 +1051,7 @@ fun OmniPlayerScreen(
                 }
             )
         }
+    }
     }
 }
 

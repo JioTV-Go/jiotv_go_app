@@ -228,7 +228,9 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("omniEnableSwipeGestures") var omniEnableSwipeGestures: Boolean = true,
         @SharedPrefKey("omniEnableDoubleTapSeek") var omniEnableDoubleTapSeek: Boolean = true,
         @SharedPrefKey("omniAnimationEnabled") var omniAnimationEnabled: Boolean = true,
-        @SharedPrefKey("omni_quality_max_height") var omniQualityMaxHeight: Int = 0
+        @SharedPrefKey("omni_quality_max_height") var omniQualityMaxHeight: Int = 0,
+        @SharedPrefKey("omni_selected_categories") var omniSelectedCategories: String? = "[]",
+        @SharedPrefKey("omni_selected_languages") var omniSelectedLanguages: String? = "[]"
     )
 
 

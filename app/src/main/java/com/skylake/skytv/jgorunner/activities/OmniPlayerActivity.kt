@@ -115,6 +115,9 @@ class OmniPlayerActivity : ComponentActivity() {
         super.onStart()
         displayManager.registerDisplayListener(mirrorListener, null)
         applyOrientation()
+        if (prefManager.myPrefs.enablePip && !com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(this)) {
+            pipController.updatePipActionsIfAllowed()
+        }
     }
 
     override fun onStop() {
