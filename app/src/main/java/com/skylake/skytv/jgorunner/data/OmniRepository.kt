@@ -46,12 +46,13 @@ class OmniRepository(private val context: Context) {
                                 val requiresSub = ch.id != null && subscriptionMap[ch.id] == true
                                 if (requiresSub) {
                                     val isLocalJio = ch.url?.contains("127.0.0.1") == true || ch.url?.contains("localhost") == true
-                                    val derivedMpdUrl = if (isLocalJio && ch.url?.contains("/live/") == true) {
-                                        val base = ch.url.substringBefore("/live/")
+                                    val isLiveOrPlay = ch.url?.contains("/live/") == true || ch.url?.contains("/play/") == true
+                                    val derivedMpdUrl = if (isLocalJio && isLiveOrPlay) {
+                                        val base = if (ch.url.contains("/live/")) ch.url.substringBefore("/live/") else ch.url.substringBefore("/play/")
                                         "$base/live/mpd/${ch.id}.mpd"
                                     } else null
-                                    val derivedKeyUrl = if (isLocalJio && ch.url?.contains("/live/") == true) {
-                                        val base = ch.url.substringBefore("/live/")
+                                    val derivedKeyUrl = if (isLocalJio && isLiveOrPlay) {
+                                        val base = if (ch.url.contains("/live/")) ch.url.substringBefore("/live/") else ch.url.substringBefore("/play/")
                                         "$base/live/key/${ch.id}"
                                     } else null
                                     ch.copy(

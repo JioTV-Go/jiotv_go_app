@@ -22,6 +22,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput as canvasPointerInput
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -401,24 +405,46 @@ fun OmniPlayerScreen(
             }
 
             var resolvedLicenseUrl = ch.licenseUrl
-            // When DRM is enabled, prefer MPD (DASH). When DRM is off, always use HLS m3u8.
-            var playbackUrl = if (useDrm && ch.mpdUrl != null) {
+            var rawPlaybackUrl = if (useDrm && ch.mpdUrl != null) {
                 ch.mpdUrl!!
             } else {
                 ch.m3u8Url ?: ch.url ?: ""
             }
 
+            // Normalize playback URL using HelperUtils.normalizePlaybackUrl
+            var playbackUrl = com.skylake.skytv.jgorunner.utils.normalizePlaybackUrl(
+                context = context,
+                inputUrl = rawPlaybackUrl,
+                keepPlayEndpoint = false,
+                applyQuality = false
+            )
+
             val isLocalChannel = playbackUrl.contains("127.0.0.1") || playbackUrl.contains("localhost")
 
-            // If still no license URL for a local DRM channel, auto-derive it from the MPD URL.
-            if (useDrm && isLocalChannel && resolvedLicenseUrl.isNullOrBlank() && ch.mpdUrl != null) {
-                val channelId = ch.mpdUrl!!.substringAfterLast("/").substringBefore(".")
-                val base = ch.mpdUrl!!.substringBefore("/live/mpd/")
-                resolvedLicenseUrl = "$base/live/key/$channelId"
+            if (useDrm && resolvedLicenseUrl.isNullOrBlank()) {
+                if (isLocalChannel) {
+                    val isMpd = playbackUrl.contains("/live/mpd/")
+                    val isLive = playbackUrl.contains("/live/")
+                    if (isMpd) {
+                        val channelId = playbackUrl.substringAfterLast("/").substringBefore(".")
+                        val base = playbackUrl.substringBefore("/live/mpd/")
+                        resolvedLicenseUrl = "$base/live/key/$channelId"
+                    } else if (isLive) {
+                        val channelId = playbackUrl.substringAfterLast("/").substringBefore(".")
+                        val base = playbackUrl.substringBefore("/live/")
+                        playbackUrl = "$base/live/mpd/$channelId.mpd"
+                        resolvedLicenseUrl = "$base/live/key/$channelId"
+                    }
+                }
             }
 
             // Force HLS when DRM is toggled off
-            if (!useDrm) resolvedLicenseUrl = null
+            if (!useDrm) {
+                resolvedLicenseUrl = null
+                if (playbackUrl.contains("/live/mpd/")) {
+                    playbackUrl = playbackUrl.replace("/live/mpd/", "/live/").replace(".mpd", ".m3u8")
+                }
+            }
 
 
             val builder = MediaItem.Builder()
@@ -1038,153 +1064,241 @@ fun OmniPlayerOverlay(
             }
             .padding(24.dp)
     ) {
-        // Top row
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        // Time Card (Top End)
+        Card(
+            modifier = Modifier.align(Alignment.TopEnd),
+            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+            shape = RoundedCornerShape(8.dp)
         ) {
-            AsyncImage(
-                model = channel?.logo,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.9f))
-                    .padding(4.dp),
-                contentScale = ContentScale.Fit
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(
-                    text = channel?.name ?: "Unknown",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-                if (!channel?.group.isNullOrBlank()) {
-                    Text(
-                        text = channel?.group ?: "",
-                        color = Color.Cyan,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+            var time by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    val cal = Calendar.getInstance()
+                    time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+                    delay(30000)
                 }
             }
+            Text(
+                text = time,
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
         }
 
-        // Bottom row
+        // Bottom Column containing details, seekbar, and buttons (Bottom Start)
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.BottomStart)
                 .fillMaxWidth()
         ) {
+            // Channel Info Row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(
+                    model = channel?.logo,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(66.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.9f))
+                        .padding(4.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "${currentIndex + 1}. ${channel?.name ?: "Unknown"}",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp
+                    )
+                    if (!channel?.group.isNullOrBlank()) {
+                        Text(
+                            text = channel?.group ?: "",
+                            color = Color.Cyan.copy(alpha = 0.7f),
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Seek bar if seekable (catchup show)
             val seekable = try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false }
             if (seekable && duration > 0) {
+                var isDragging by remember { mutableStateOf(false) }
+                var isFocused by remember { mutableStateOf(false) }
+                var dragFraction by remember { mutableFloatStateOf(0f) }
+                val totalDuration = if (duration > 0) duration else 1L
+                val fraction = if (isDragging) dragFraction else (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(formatTime(currentPosition), color = Color.White, fontSize = 12.sp)
-                    Slider(
-                        value = currentPosition.toFloat(),
-                        onValueChange = {
-                            exoPlayer.seekTo(it.toLong())
-                        },
-                        valueRange = 0f..duration.toFloat(),
+                    Text(text = formatTime(currentPosition), color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 12.dp)
+                            .height(20.dp)
                             .focusRequester(seekBarFocusRequester)
-                    )
-                    Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            onChannelsClick()
-                        },
-                        icon = Icons.Default.Menu,
-                        modifier = Modifier.focusRequester(focusRequester)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            onMenuClick()
-                        },
-                        icon = Icons.Default.Settings
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            onPrevClick()
-                        },
-                        icon = Icons.Default.SkipPrevious
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
+                            .focusable()
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                                if (it.isFocused) {
+                                    isDragging = true
+                                    dragFraction = (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                                } else {
+                                    isDragging = false
+                                }
                             }
-                            isPlaying = !isPlaying
-                        },
-                        icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            onNextClick()
-                        },
-                        icon = Icons.Default.SkipNext
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OverlayButton(
-                        onClick = {
-                            onUserInteraction()
-                            onRefreshClick()
-                        },
-                        icon = Icons.Default.Refresh
-                    )
-                }
+                            .onPreviewKeyEvent { keyEvent ->
+                                if (keyEvent.type == KeyEventType.KeyDown) {
+                                    when (keyEvent.key) {
+                                        Key.DirectionLeft -> {
+                                            onUserInteraction()
+                                            val newPos = maxOf(0L, exoPlayer.currentPosition - 10000L)
+                                            exoPlayer.seekTo(newPos)
+                                            currentPosition = newPos
+                                            dragFraction = (newPos.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                                            return@onPreviewKeyEvent true
+                                        }
+                                        Key.DirectionRight -> {
+                                            onUserInteraction()
+                                            val newPos = minOf(totalDuration, exoPlayer.currentPosition + 10000L)
+                                            exoPlayer.seekTo(newPos)
+                                            currentPosition = newPos
+                                            dragFraction = (newPos.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                                            return@onPreviewKeyEvent true
+                                        }
+                                    }
+                                }
+                                false
+                            }
+                            .canvasPointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = { offset ->
+                                        isDragging = true
+                                        dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                                    },
+                                    onDragEnd = {
+                                        isDragging = false
+                                        exoPlayer.seekTo((dragFraction * totalDuration).toLong())
+                                    },
+                                    onDragCancel = { isDragging = false },
+                                    onHorizontalDrag = { _, delta ->
+                                        dragFraction = (dragFraction + delta / size.width).coerceIn(0f, 1f)
+                                    }
+                                )
+                            }
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val trackY = size.height / 2f
+                            val trackStart = 0f
+                            val trackEnd = size.width
+                            val thumbX = fraction * trackEnd
+                            val thumbRadius = if (isDragging) 7.dp.toPx() else 5.dp.toPx()
 
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    var time by remember { mutableStateOf("") }
-                    LaunchedEffect(Unit) {
-                        while (true) {
-                            val cal = Calendar.getInstance()
-                            time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-                            delay(30000)
+                            if (isFocused) {
+                                drawRoundRect(
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.08f),
+                                    size = androidx.compose.ui.geometry.Size(size.width, size.height),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                                )
+                            }
+
+                            drawLine(
+                                color = if (isFocused) Color(0xFF5A5A5A) else Color(0xFF3A3A3A),
+                                start = androidx.compose.ui.geometry.Offset(trackStart, trackY),
+                                end = androidx.compose.ui.geometry.Offset(trackEnd, trackY),
+                                strokeWidth = if (isFocused) 3.5.dp.toPx() else 2.5.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+
+                            drawLine(
+                                color = Color(0xFF00E5FF),
+                                start = androidx.compose.ui.geometry.Offset(trackStart, trackY),
+                                end = androidx.compose.ui.geometry.Offset(thumbX, trackY),
+                                strokeWidth = if (isFocused) 3.5.dp.toPx() else 2.5.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+
+                            drawCircle(
+                                color = Color(0xFF00E5FF),
+                                radius = thumbRadius,
+                                center = androidx.compose.ui.geometry.Offset(thumbX, trackY)
+                            )
+
+                            drawCircle(
+                                color = Color.White.copy(alpha = 0.5f),
+                                radius = thumbRadius * 0.5f,
+                                center = androidx.compose.ui.geometry.Offset(thumbX, trackY)
+                            )
                         }
                     }
-                    Text(
-                        text = time,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = formatTime(totalDuration), color = Color.White.copy(alpha = 0.75f), fontSize = 11.sp)
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Transport Control Buttons Row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        onChannelsClick()
+                    },
+                    icon = Icons.Default.Menu,
+                    modifier = Modifier.focusRequester(focusRequester)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        onMenuClick()
+                    },
+                    icon = Icons.Default.Settings
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        onPrevClick()
+                    },
+                    icon = Icons.Default.SkipPrevious
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        if (exoPlayer.isPlaying) {
+                            exoPlayer.pause()
+                        } else {
+                            exoPlayer.play()
+                        }
+                        isPlaying = !isPlaying
+                    },
+                    icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        onNextClick()
+                    },
+                    icon = Icons.Default.SkipNext
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OverlayButton(
+                    onClick = {
+                        onUserInteraction()
+                        onRefreshClick()
+                    },
+                    icon = Icons.Default.Refresh
+                )
             }
         }
     }
