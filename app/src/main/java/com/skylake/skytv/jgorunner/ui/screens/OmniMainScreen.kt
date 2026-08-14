@@ -1041,6 +1041,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                         catchupChannelTarget = channel
                                     } else {
                                         com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = filteredChannels
+                                        if (com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.isInPipMode) {
+                                            try {
+                                                com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
+                                            } catch (_: Exception) {}
+                                        }
                                         val intent = Intent(context, OmniPlayerActivity::class.java).apply {
                                             putExtra("channel_index", index)
                                         }
@@ -1064,6 +1069,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 preferenceManager = prefManager,
                 onPlayChannel = { resolvedChannel ->
                     com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = listOf(resolvedChannel)
+                    if (com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.isInPipMode) {
+                        try {
+                            com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
+                        } catch (_: Exception) {}
+                    }
                     val intent = Intent(context, OmniPlayerActivity::class.java).apply {
                         putExtra("channel_index", 0)
                     }
