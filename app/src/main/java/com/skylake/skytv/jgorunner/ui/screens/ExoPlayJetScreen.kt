@@ -1270,7 +1270,7 @@ private fun hookExoControllerButtons(playerView: PlayerView, context: Context) {
 @OptIn(UnstableApi::class)
 fun createL3MediaSourceFactory(
     context: Context,
-    licenseUrl: String,
+    licenseUrl: String?,
     userAgent: String = "ExoPlayer",
     headers: Map<String, String> = emptyMap()
 ): DefaultMediaSourceFactory {
@@ -1283,32 +1283,41 @@ fun createL3MediaSourceFactory(
         .setDefaultRequestProperties(headers)
 
     val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-    val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
 
-    val drmSessionManager = DefaultDrmSessionManager.Builder()
-        .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
-            FrameworkMediaDrm.newInstance(uuid).apply {
-                setPropertyString("securityLevel", "L3")
-            }
-        }
-        .build(drmCallback)
-
-    return DefaultMediaSourceFactory(context)
+    val mediaSourceFactory = DefaultMediaSourceFactory(context)
         .setDataSourceFactory(dataSourceFactory)
-        .setDrmSessionManagerProvider { drmSessionManager }
+    
+    if (!licenseUrl.isNullOrEmpty()) {
+        val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
+        val drmSessionManager = DefaultDrmSessionManager.Builder()
+            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
+                FrameworkMediaDrm.newInstance(uuid).apply {
+                    setPropertyString("securityLevel", "L3")
+                }
+            }
+            .build(drmCallback)
+
+        mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
+    }
+
+    return mediaSourceFactory
 }
 
 @UnstableApi
 fun buildMediaItem(videoUrl: String, keyUrl: String?): MediaItem {
     Log.d(TAG, "Building Stream URL: $videoUrl | DRM Key: $keyUrl")
 
-    return MediaItem.Builder()
+    val builder = MediaItem.Builder()
         .setUri(videoUrl.toUri())
-        .setMimeType(MimeTypes.APPLICATION_MPD)
-        .setDrmConfiguration(
+        .setMimeType(if (keyUrl.isNullOrEmpty()) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MPD)
+
+    if (!keyUrl.isNullOrEmpty()) {
+        builder.setDrmConfiguration(
             MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                .setLicenseUri(keyUrl ?: "")
+                .setLicenseUri(keyUrl)
                 .build()
         )
-        .build()
+    }
+
+    return builder.build()
 }
