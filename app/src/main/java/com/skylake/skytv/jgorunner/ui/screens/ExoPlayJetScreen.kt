@@ -626,8 +626,8 @@ fun ExoPlayJetScreen(
 
                             nextBtn?.setImageResource(R.drawable.ic_skip_next_24)
                             prevBtn?.setImageResource(R.drawable.ic_skip_previous_24)
-                            nextBtn?.visibility = View.VISIBLE
-                            prevBtn?.visibility = View.VISIBLE
+                            nextBtn?.visibility = View.GONE
+                            prevBtn?.visibility = View.GONE
                             nextBtn?.isEnabled = true
                             prevBtn?.isEnabled = true
 
