@@ -348,7 +348,7 @@ fun ExoPlayJetScreen(
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
-        setupCustomPlaybackLogic(exoPlayer, currentUrl)
+        //setupCustomPlaybackLogic(exoPlayer, currentUrl)
 
         if (!PlayerCommandBus.isInPipMode) {
             showChannelOverlay = true
