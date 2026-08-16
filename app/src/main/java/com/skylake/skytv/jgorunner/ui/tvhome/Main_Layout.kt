@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -88,13 +89,25 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                 if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            delay(500) // Brief delay to ensure UI is drawn before jumping to player
+            delay(500) 
             context.startActivity(intent)
             tvViewModel.saveToRecents(firstChannel)
             AppStartTracker.shouldPlayChannel = true
         }
     }
 
+    
+    val languageMap = remember {
+        mapOf(
+            "All Languages" to null, "Hindi" to 1, "Marathi" to 2, "Punjabi" to 3,
+            "Urdu" to 4, "Bengali" to 5, "English" to 6, "Malayalam" to 7,
+            "Tamil" to 8, "Gujarati" to 9, "Odia" to 10, "Telugu" to 11,
+            "Bhojpuri" to 12, "Kannada" to 13, "Assamese" to 14, "Nepali" to 15,
+            "French" to 16, "Other" to 18
+        )
+    }
+
+    
     val categoryMap = remember {
         mapOf(
             "All" to null, "Entertainment" to 5, "Movies" to 6, "Kids" to 7,
@@ -110,6 +123,7 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
     }
 
     var selectedCategoryIds by rememberSaveable { mutableStateOf(savedCategoryIds) }
+    var selectedLanguageIds by rememberSaveable { mutableStateOf(emptySet<Int>()) }
 
     val sortedCategories = remember(selectedCategoryIds) {
         val allCategoryNames = categoryMap.keys.toList()
@@ -121,13 +135,13 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         listOf("All") + selected + unselected
     }
 
-    // EPG States
+    
     val epgData by tvViewModel.epgData.collectAsState()
     val isEpgLoading by tvViewModel.isEpgLoading.collectAsState()
     val epgError by tvViewModel.epgError.collectAsState()
     val GoldColor = Color(0xFFFFD700)
 
-    // UI RENDERING
+    
     when {
         isLoading && filteredChannels.isEmpty() -> {
             ShimmerChannelGrid()
@@ -198,20 +212,82 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
         }
         else -> {
             Column(modifier = Modifier.fillMaxSize()) {
-                // CATEGORY CHIPS
+                
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    
+                    item {
+                        Box {
+                            var isFocused by remember { mutableStateOf(false) }
+                            var showLanguageDropdown by remember { mutableStateOf(false) }
+                            val isChipSelected = selectedLanguageIds.isNotEmpty()
+
+                            FilterChip(
+                                modifier = Modifier.onFocusChanged { focusState ->
+                                    isFocused = focusState.isFocused
+                                },
+                                onClick = { showLanguageDropdown = true },
+
+                                label = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Language,
+                                        contentDescription = "Languages",
+                                        modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                    )
+                                },
+                                selected = isChipSelected,
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isChipSelected,
+                                    borderColor = if (isFocused) GoldColor else MaterialTheme.colorScheme.outline,
+                                    selectedBorderColor = if (isFocused) GoldColor else MaterialTheme.colorScheme.primary,
+                                    borderWidth = if (isFocused) 2.dp else 1.dp,
+                                    selectedBorderWidth = if (isFocused) 2.dp else 1.dp
+                                )
+                            )
+
+                            DropdownMenu(
+                                expanded = showLanguageDropdown,
+                                onDismissRequest = { showLanguageDropdown = false }
+                            ) {
+                                languageMap.forEach { (langName, langId) ->
+                                    val isSelected = if (langId == null) selectedLanguageIds.isEmpty() else selectedLanguageIds.contains(langId)
+                                    DropdownMenuItem(
+                                        text = { Text(langName) },
+                                        onClick = {
+                                            selectedLanguageIds = if (langId == null) {
+                                                emptySet()
+                                            } else {
+                                                if (isSelected) selectedLanguageIds - langId else selectedLanguageIds + langId
+                                            }
+                                            
+                                            tvViewModel.applyFilters(
+                                                newCategoryIds = selectedCategoryIds,
+                                                newLanguageIds = selectedLanguageIds
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            if (isSelected) {
+                                                Icon(Icons.Filled.Done, contentDescription = "Selected")
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    
                     items(sortedCategories) { categoryName ->
                         val categoryId = categoryMap[categoryName]
                         val isSelected = categoryId != null && selectedCategoryIds.contains(categoryId)
                         val isChipSelected = if (categoryName == "All") selectedCategoryIds.isEmpty() else isSelected
 
                         var isFocused by remember { mutableStateOf(false) }
-                        val GoldColor = Color(0xFFFFD700)
 
                         FilterChip(
                             modifier = Modifier.onFocusChanged { focusState ->
@@ -226,7 +302,12 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
 
                                 tvViewModel.preferenceManager.myPrefs.filterCI = selectedCategoryIds.joinToString(",")
                                 tvViewModel.preferenceManager.savePreferences()
-                                tvViewModel.applyFilters(newCategoryIds = selectedCategoryIds)
+
+                                
+                                tvViewModel.applyFilters(
+                                    newCategoryIds = selectedCategoryIds,
+                                    newLanguageIds = selectedLanguageIds
+                                )
                             },
                             label = { Text(categoryName) },
                             selected = isChipSelected,
@@ -245,91 +326,91 @@ fun Main_Layout(context: Context, reloadTrigger: Int) {
                     }
                 }
 
-                // EPG Component
+                
                 if (tvViewModel.preferenceManager.myPrefs.showEPG && (isEpgLoading || epgData != null || epgError)) {
                     Column(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .fillMaxWidth()
-                ) {
-                    Card(
                         modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                             .fillMaxWidth()
-                            .height(120.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-                        shape = RoundedCornerShape(16.dp)
                     ) {
-                        when {
-                            isEpgLoading -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Loading EPG...", color = Color.Gray)
-                                }
-                            }
-
-                            epgError -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("No EPG available", color = Color.Gray)
-                                }
-                            }
-
-                            epgData != null -> {
-                                val epg = epgData!!
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(start = 8.dp, end = 12.dp)
-                                            .heightIn(max = 110.dp)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            when {
+                                isEpgLoading -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = epg.channel_name,
-                                            style = TextStyle(fontSize = 14.sp)
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = epg.showname,
-                                            maxLines = 1,
-                                            style = TextStyle(
-                                                fontSize = 22.sp,
-                                                fontWeight = FontWeight.Bold
+                                        Text("Loading EPG...", color = Color.Gray)
+                                    }
+                                }
+
+                                epgError -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("No EPG available", color = Color.Gray)
+                                    }
+                                }
+
+                                epgData != null -> {
+                                    val epg = epgData!!
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(start = 8.dp, end = 12.dp)
+                                                .heightIn(max = 110.dp)
+                                        ) {
+                                            Text(
+                                                text = epg.channel_name,
+                                                style = TextStyle(fontSize = 14.sp)
                                             )
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = epg.description,
-                                            style = TextStyle(fontSize = 13.sp),
-                                            maxLines = 3,
-                                            overflow = TextOverflow.Ellipsis
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = epg.showname,
+                                                maxLines = 1,
+                                                style = TextStyle(
+                                                    fontSize = 22.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = epg.description,
+                                                style = TextStyle(fontSize = 13.sp),
+                                                maxLines = 3,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        GlideImage(
+                                            model = "$basefinURL/jtvposter/${epg.episodePoster}",
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .height(90.dp)
+                                                .clip(RoundedCornerShape(12.dp)),
+                                            contentScale = ContentScale.Fit
                                         )
                                     }
-
-                                    GlideImage(
-                                        model = "$basefinURL/jtvposter/${epg.episodePoster}",
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .height(90.dp)
-                                            .clip(RoundedCornerShape(12.dp)),
-                                        contentScale = ContentScale.Fit
-                                    )
                                 }
                             }
                         }
                     }
                 }
-            }
 
-                // MAIN GRID
+                
                 ChannelGridMain(
                     filteredChannels = filteredChannels,
                     favoriteIds = favoriteIds,
