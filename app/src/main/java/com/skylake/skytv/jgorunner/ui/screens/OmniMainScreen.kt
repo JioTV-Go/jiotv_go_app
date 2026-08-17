@@ -1566,12 +1566,49 @@ fun OmniCatchupOverlay(
                     program.copy(startEpoch = start, endEpoch = end)
                 }
                 val pastAndLive = parsedEpg.filter { it.startEpoch <= currentTime }
-                val finalEpg = if (selectedOffset == 0) {
+                var finalEpg = if (selectedOffset == 0) {
                     val liveShow = pastAndLive.find { currentTime >= it.startEpoch && currentTime <= it.endEpoch }
-                    if (liveShow != null) listOf(liveShow) + pastAndLive.filter { it.srno != liveShow.srno }.reversed()
-                    else pastAndLive.reversed()
+                    if (liveShow != null) {
+                        val otherShows = pastAndLive.filter { it.srno != liveShow.srno }.reversed()
+                        listOf(liveShow) + otherShows
+                    } else {
+                        val liveTvProgram = EpgProgram(
+                            srno = -1L,
+                            showId = "live_fallback",
+                            showtime = "LIVE",
+                            showname = "LIVE TV",
+                            description = "Watch Live Stream",
+                            duration = 0,
+                            endtime = "",
+                            channel_name = channel.name ?: "",
+                            episodeThumbnail = "",
+                            episodePoster = "",
+                            startEpoch = System.currentTimeMillis() - 1000,
+                            endEpoch = System.currentTimeMillis() + 3600 * 1000
+                        )
+                        listOf(liveTvProgram) + pastAndLive.reversed()
+                    }
                 } else {
                     pastAndLive.reversed()
+                }
+
+                if (finalEpg.isEmpty()) {
+                    finalEpg = listOf(
+                        EpgProgram(
+                            srno = -1L,
+                            showId = "live_fallback",
+                            showtime = "LIVE",
+                            showname = "LIVE TV",
+                            description = "Watch Live Stream",
+                            duration = 0,
+                            endtime = "",
+                            channel_name = channel.name ?: "",
+                            episodeThumbnail = "",
+                            episodePoster = "",
+                            startEpoch = System.currentTimeMillis() - 1000,
+                            endEpoch = System.currentTimeMillis() + 3600 * 1000
+                        )
+                    )
                 }
 
                 withContext(Dispatchers.Main) {
@@ -1581,8 +1618,23 @@ fun OmniCatchupOverlay(
             }
         } catch (e: Exception) {
             Log.e("OmniCatchup", "Error fetching EPG", e)
+            val fallbackLive = EpgProgram(
+                srno = -1L,
+                showId = "live_fallback",
+                showtime = "LIVE",
+                showname = "LIVE TV",
+                description = "Watch Live Stream (EPG unavailable)",
+                duration = 0,
+                endtime = "",
+                channel_name = channel.name ?: "",
+                episodeThumbnail = "",
+                episodePoster = "",
+                startEpoch = System.currentTimeMillis() - 1000,
+                endEpoch = System.currentTimeMillis() + 3600 * 1000
+            )
             withContext(Dispatchers.Main) {
-                errorMsg = "Failed to load catchup guide"
+                epgList = listOf(fallbackLive)
+                errorMsg = null
                 loading = false
             }
         }
