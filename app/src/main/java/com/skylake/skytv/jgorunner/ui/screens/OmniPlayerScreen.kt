@@ -92,6 +92,9 @@ import java.util.Calendar
 
 private const val OMNI_TAG = "OmniPlayerScreen"
 
+/** Controller / HUD auto-hide delay, measured from the last key press or focus move. */
+private const val CONTROLS_IDLE_TIMEOUT_MS = 5000L
+
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(UnstableApi::class)
 @Composable
@@ -222,8 +225,13 @@ fun OmniPlayerScreen(
     var seekIndicatorJob by remember { mutableStateOf<Job?>(null) }
 
     var panelSelectedIndex by remember { mutableIntStateOf(currentIndex) }
-    var showChannelOverlay by remember { mutableStateOf(false) }
-    var overlayVisibilityTick by remember { mutableLongStateOf(0L) }
+    // The transport controller (focusable buttons + seekbar).
+    var showController by remember { mutableStateOf(false) }
+    // Info-only channel HUD shown on TV while the controller is hidden.
+    var showHud by remember { mutableStateOf(false) }
+    // Bumped on every key press / focus move so the idle countdown restarts.
+    var controllerActivityTick by remember { mutableLongStateOf(0L) }
+    var hudActivityTick by remember { mutableLongStateOf(0L) }
     var playerError by remember { mutableStateOf<String?>(null) }
 
     var numericBuffer by remember { mutableStateOf("") }
@@ -255,31 +263,66 @@ fun OmniPlayerScreen(
         }
     }
 
+    val isTv = remember { DeviceUtils.isTvDevice(context) }
+
     val isMovieOrVod = remember(activeChannel) {
         val ch = activeChannel ?: return@remember false
         ch.name?.contains("[Catchup]", ignoreCase = true) == true || ch.url?.contains("/catchup/") == true
     }
 
-    var controllerTimeoutJob by remember { mutableStateOf<Job?>(null) }
+    // --- Controller / HUD visibility --------------------------------------------------
+    // Two separate overlays, so the D-pad never means two things at once:
+    //   HUD        - info only (logo, channel, clock, OK-opens-controls hint). Nothing in it is
+    //                focusable, so while it is up the remote keeps its shortcut meaning:
+    //                LEFT = channel list, RIGHT = settings, UP/DOWN = zap, OK = controller.
+    //   Controller - the transport bar. While it is open the D-pad only walks its buttons
+    //                and OK presses the focused one; the shortcuts above are suspended.
 
-    // Auto Hide Controller Logic
-    fun triggerControllerTimeout() {
-        showChannelOverlay = true
-        controllerTimeoutJob?.cancel()
-        controllerTimeoutJob = scope.launch {
-            delay(5000)
-            showChannelOverlay = false
+    /** Opens the controller (or keeps it open) and restarts its idle countdown. */
+    fun openController() {
+        showHud = false
+        showController = true
+        controllerActivityTick++
+    }
+
+    /** Any key press or focus move while the controller is open restarts the countdown. */
+    fun markControllerActivity() {
+        if (showController) controllerActivityTick++
+    }
+
+    /** Flashes the info HUD. No-op on touch devices and while the controller is open. */
+    fun flashHud() {
+        if (!isTv || showController) return
+        showHud = true
+        hudActivityTick++
+    }
+
+    // 5s of no key press and no focus move closes the controller.
+    LaunchedEffect(showController, controllerActivityTick) {
+        if (showController) {
+            delay(CONTROLS_IDLE_TIMEOUT_MS)
+            showController = false
+        }
+    }
+
+    LaunchedEffect(showHud, hudActivityTick) {
+        if (showHud) {
+            delay(CONTROLS_IDLE_TIMEOUT_MS)
+            showHud = false
+        }
+    }
+
+    // Hand D-pad focus back to the video surface once every overlay is gone, otherwise the
+    // hidden-controller shortcuts stay dead after the controller or a panel closes.
+    LaunchedEffect(showController, showChannelPanel, showSettingsPanel) {
+        if (isTv && !showController && !showChannelPanel && !showSettingsPanel) {
+            delay(80)
+            runCatching { rootFocusRequester.requestFocus() }
         }
     }
 
     LaunchedEffect(Unit) {
-        triggerControllerTimeout()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            controllerTimeoutJob?.cancel()
-        }
+        if (isTv) flashHud() else openController()
     }
 
     // DRM media builder for Free Jio mechanisms
@@ -529,7 +572,8 @@ fun OmniPlayerScreen(
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
-            triggerControllerTimeout()
+            // New channel is live: flash the info HUD on TV, surface the controls on touch.
+            if (isTv) flashHud() else openController()
         } catch (e: Exception) {
             Log.e(OMNI_TAG, "Failed to prepare playback", e)
             com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to prepare playback for ${activeChannel?.name}", e)
@@ -592,8 +636,6 @@ fun OmniPlayerScreen(
     }
 
     val favoriteStore = remember { OmniFavoritesStore(preferenceManager) }
-    val isTv = remember { com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context) }
-
     // Mobile Swipe Gestures
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
     val maxVolume = remember { audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() }
@@ -689,7 +731,7 @@ fun OmniPlayerScreen(
         when {
             showChannelPanel -> showChannelPanel = false
             showSettingsPanel -> showSettingsPanel = false
-            showChannelOverlay -> showChannelOverlay = false
+            showController -> showController = false
             else -> {
                 val act = context as? Activity
                 if (preferenceManager.myPrefs.enablePip && !com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context) && act != null) {
@@ -733,14 +775,12 @@ fun OmniPlayerScreen(
                 .pointerInput(isMovieOrVod) {
                 detectTapGestures(
                     onTap = {
-                        if (showChannelOverlay) {
-                            showChannelOverlay = false
+                        if (showController) {
+                            showController = false
                             showChannelPanel = false
                             showSettingsPanel = false
                         } else {
-                            showChannelOverlay = true
-                            overlayVisibilityTick = System.currentTimeMillis()
-                            triggerControllerTimeout()
+                            openController()
                         }
                     },
                     onDoubleTap = { offset ->
@@ -766,39 +806,48 @@ fun OmniPlayerScreen(
             }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
-                    triggerControllerTimeout()
+                    // Controller open -> the D-pad belongs to its buttons. Swallow nothing;
+                    // just restart the idle countdown and let the focused child handle it.
+                    // This is what stops LEFT/RIGHT from opening panels and UP/DOWN from
+                    // zapping while the user is walking the transport bar.
+                    if (showController) {
+                        markControllerActivity()
+                        return@onPreviewKeyEvent false
+                    }
+
+                    val panelOpen = showChannelPanel || showSettingsPanel
                     when (event.key) {
                         Key.DirectionLeft -> {
-                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
+                            if (!panelOpen) {
+                                showHud = false
                                 showChannelPanel = true
-                                try { sidePanelFocusRequester.requestFocus() } catch (_: Exception) {}
                                 return@onPreviewKeyEvent true
                             }
                         }
                         Key.DirectionRight -> {
-                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
+                            if (!panelOpen) {
+                                showHud = false
                                 showSettingsPanel = true
-                                try { settingsPanelFocusRequester.requestFocus() } catch (_: Exception) {}
                                 return@onPreviewKeyEvent true
                             }
                         }
                         Key.DirectionUp -> {
-                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay && activeList.isNotEmpty()) {
+                            if (!panelOpen && activeList.isNotEmpty()) {
                                 currentIndex = (currentIndex + 1) % activeList.size
+                                flashHud()
                                 return@onPreviewKeyEvent true
                             }
                         }
                         Key.DirectionDown -> {
-                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay && activeList.isNotEmpty()) {
+                            if (!panelOpen && activeList.isNotEmpty()) {
                                 currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                                flashHud()
                                 return@onPreviewKeyEvent true
                             }
                         }
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                            if (!showChannelPanel && !showSettingsPanel && !showChannelOverlay) {
-                                showChannelOverlay = true
-                                overlayVisibilityTick = System.currentTimeMillis()
-                                try { overlayFocusRequester.requestFocus() } catch (_: Exception) {}
+                            if (!panelOpen) {
+                                openController()
                                 return@onPreviewKeyEvent true
                             }
                         }
@@ -818,6 +867,7 @@ fun OmniPlayerScreen(
                             val num = numericBuffer.toIntOrNull()
                             if (num != null && num in 1..activeList.size) {
                                 currentIndex = num - 1
+                                flashHud()
                             }
                             numericBuffer = ""
                             showNumericOverlay = false
@@ -827,6 +877,7 @@ fun OmniPlayerScreen(
                 }
                 false
             }
+            .focusRequester(rootFocusRequester)
             .focusable()
     ) {
         // Video View
@@ -958,25 +1009,39 @@ fun OmniPlayerScreen(
             }
         }
 
+        // Info-only HUD: keeps the remote shortcuts alive and advertises that OK opens
+        // the real controller.
+        AnimatedVisibility(
+            visible = showHud && !showController && !showChannelPanel && !showSettingsPanel,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            OmniPlayerHud(channel = activeChannel, currentIndex = currentIndex)
+        }
+
         // Main controls overlay
         AnimatedVisibility(
-            visible = showChannelOverlay && !showChannelPanel && !showSettingsPanel,
+            visible = showController && !showChannelPanel && !showSettingsPanel,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
             OmniPlayerOverlay(
                 channel = activeChannel,
                 currentIndex = currentIndex,
+                isTv = isTv,
                 focusRequester = overlayFocusRequester,
                 seekBarFocusRequester = seekBarFocusRequester,
-                autoFocusSeekBar = isTv && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
+                autoFocusSeekBar = isMovieOrVod && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
                 exoPlayer = exoPlayer,
-                onUserInteraction = { 
-                    overlayVisibilityTick = System.currentTimeMillis()
-                    triggerControllerTimeout()
+                onUserInteraction = { markControllerActivity() },
+                onMenuClick = {
+                    showController = false
+                    showSettingsPanel = true
                 },
-                onMenuClick = { showSettingsPanel = true },
-                onChannelsClick = { showChannelPanel = true },
+                onChannelsClick = {
+                    showController = false
+                    showChannelPanel = true
+                },
                 onRefreshClick = {
                     playbackTrigger++
                 },
@@ -987,7 +1052,7 @@ fun OmniPlayerScreen(
                     if (activeList.isNotEmpty()) currentIndex = (currentIndex + 1) % activeList.size
                 },
                 onDismiss = {
-                    showChannelOverlay = false
+                    showController = false
                     showChannelPanel = false
                     showSettingsPanel = false
                 }
@@ -1008,6 +1073,7 @@ fun OmniPlayerScreen(
                 onChannelSelected = { index ->
                     currentIndex = index
                     showChannelPanel = false
+                    flashHud()
                 },
                 onClose = { showChannelPanel = false }
             )
@@ -1081,6 +1147,7 @@ fun OmniPlayerScreen(
 fun OmniPlayerOverlay(
     channel: OmniChannel?,
     currentIndex: Int,
+    isTv: Boolean,
     focusRequester: FocusRequester,
     seekBarFocusRequester: FocusRequester,
     autoFocusSeekBar: Boolean,
@@ -1106,11 +1173,14 @@ fun OmniPlayerOverlay(
         }
     }
 
-    LaunchedEffect(autoFocusSeekBar) {
-        if (autoFocusSeekBar) {
-            delay(80)
-            try { seekBarFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
+    // TV: focus lands on the seekbar for movies/VOD, on play/pause everywhere else.
+    // (The seekbar only exists once a duration is known, hence the fallback.)
+    LaunchedEffect(autoFocusSeekBar, isTv) {
+        if (!isTv) return@LaunchedEffect
+        delay(80)
+        val landedOnSeekBar =
+            autoFocusSeekBar && runCatching { seekBarFocusRequester.requestFocus() }.isSuccess
+        if (!landedOnSeekBar) runCatching { focusRequester.requestFocus() }
     }
 
     fun formatTime(ms: Long): String {
@@ -1124,13 +1194,17 @@ fun OmniPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                onUserInteraction()
-                onDismiss()
-            }
+            // Tap-anywhere-to-hide is a touch affordance only: on TV a clickable parent
+            // would join the focus order as an invisible D-pad target.
+            .then(
+                if (isTv) Modifier else Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    onUserInteraction()
+                    onDismiss()
+                }
+            )
             .padding(24.dp)
     ) {
         // Time Card (Top End)
@@ -1215,8 +1289,9 @@ fun OmniPlayerOverlay(
                             .focusRequester(seekBarFocusRequester)
                             .focusable()
                             .onFocusChanged {
-                                isFocused = it.isFocused
+                                isFocused = it.isFocused && isTv
                                 if (it.isFocused) {
+                                    onUserInteraction()
                                     isDragging = true
                                     dragFraction = (currentPosition.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
                                 } else {
@@ -1321,7 +1396,8 @@ fun OmniPlayerOverlay(
                         onChannelsClick()
                     },
                     icon = Icons.Default.Menu,
-                    modifier = Modifier.focusRequester(focusRequester)
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OverlayButton(
@@ -1329,7 +1405,9 @@ fun OmniPlayerOverlay(
                         onUserInteraction()
                         onMenuClick()
                     },
-                    icon = Icons.Default.Settings
+                    icon = Icons.Default.Settings,
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OverlayButton(
@@ -1337,7 +1415,9 @@ fun OmniPlayerOverlay(
                         onUserInteraction()
                         onPrevClick()
                     },
-                    icon = Icons.Default.SkipPrevious
+                    icon = Icons.Default.SkipPrevious,
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OverlayButton(
@@ -1350,7 +1430,10 @@ fun OmniPlayerOverlay(
                         }
                         isPlaying = !isPlaying
                     },
-                    icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow
+                    icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    modifier = Modifier.focusRequester(focusRequester),
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OverlayButton(
@@ -1358,7 +1441,9 @@ fun OmniPlayerOverlay(
                         onUserInteraction()
                         onNextClick()
                     },
-                    icon = Icons.Default.SkipNext
+                    icon = Icons.Default.SkipNext,
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OverlayButton(
@@ -1366,7 +1451,107 @@ fun OmniPlayerOverlay(
                         onUserInteraction()
                         onRefreshClick()
                     },
-                    icon = Icons.Default.Refresh
+                    icon = Icons.Default.Refresh,
+                    focusEnabled = isTv,
+                    onFocused = onUserInteraction
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Info-only channel HUD, shown on TV while the controller is hidden. Nothing here is
+ * focusable, so the remote keeps its shortcut meaning; the hint tells the user that OK
+ * swaps this for the real controller.
+ */
+@Composable
+fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
+    var time by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val cal = Calendar.getInstance()
+            time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+            delay(30000)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+    ) {
+        Card(
+            modifier = Modifier.align(Alignment.TopEnd),
+            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                text = time,
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+        }
+
+        Column(modifier = Modifier.align(Alignment.BottomStart)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(
+                    model = channel?.logo,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(66.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.9f))
+                        .padding(4.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "${currentIndex + 1}. ${channel?.name ?: "Unknown"}",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!channel?.group.isNullOrBlank()) {
+                        Text(
+                            text = channel?.group ?: "",
+                            color = Color.Cyan.copy(alpha = 0.7f),
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "OK",
+                    color = Color.Black,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(Color.Cyan, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 7.dp, vertical = 1.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "\u00B7 Controls",
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -1374,7 +1559,13 @@ fun OmniPlayerOverlay(
 }
 
 @Composable
-fun OverlayButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
+fun OverlayButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    focusEnabled: Boolean = true,
+    onFocused: () -> Unit = {}
+) {
     var isFocused by remember { mutableStateOf(false) }
     val rotationAngle = remember { mutableFloatStateOf(0f) }
     val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
@@ -1391,7 +1582,12 @@ fun OverlayButton(onClick: () -> Unit, icon: androidx.compose.ui.graphics.vector
             onClick()
         },
         modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
+            .onFocusChanged { state ->
+                // Touch devices get no focus ring, and a focus move on TV counts as activity.
+                val focused = state.isFocused && focusEnabled
+                if (focused && !isFocused) onFocused()
+                isFocused = focused
+            }
             .background(
                 if (isFocused) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.5f),
                 RoundedCornerShape(50)
@@ -1420,6 +1616,13 @@ fun OmniSidePanel(
     val listState = rememberLazyListState()
     LaunchedEffect(selectedIndex) {
         if (selectedIndex >= 0) listState.scrollToItem(selectedIndex)
+    }
+
+    // Requested here rather than by the caller: the row does not exist until the drawer
+    // has been composed and scrolled to the selected channel.
+    LaunchedEffect(Unit) {
+        delay(150)
+        runCatching { focusRequester.requestFocus() }
     }
 
     Box(modifier = Modifier.fillMaxHeight().width(280.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
@@ -1518,6 +1721,11 @@ fun OmniSettingsPanel(
     var showSpeedDialog by remember { mutableStateOf(false) }
     var showAudioDialog by remember { mutableStateOf(false) }
     val subtitleOptions = remember(subtitleLabels) { listOf("Off") + subtitleLabels }
+
+    LaunchedEffect(Unit) {
+        delay(150)
+        runCatching { focusRequester.requestFocus() }
+    }
 
     Box(modifier = Modifier.fillMaxHeight().width(250.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
         Column {
