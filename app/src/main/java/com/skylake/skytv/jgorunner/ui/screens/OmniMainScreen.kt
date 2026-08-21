@@ -153,6 +153,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var autoOpenServerName by remember {
         mutableStateOf(if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio")
     }
+    var showDefaultUiDialog by remember { mutableStateOf(false) }
+    var defaultUiLabel by remember {
+        mutableStateOf(
+            omniDefaultUiLabel(
+                prefManager.myPrefs.iptvAppPackageName,
+                prefManager.myPrefs.iptvAppName
+            )
+        )
+    }
     var hasAutoplayed by remember { mutableStateOf(false) }
 
     var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
@@ -567,6 +576,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniAutoStartAppOnBoot = checked
                             prefManager.savePreferences()
                             com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autostart on Boot set to $checked")
+                        }
+                    }
+                    item {
+                        OmniSettingsActionItem("Default UI: $defaultUiLabel", Icons.Default.DisplaySettings, enabled = true) {
+                            showDefaultUiDialog = true
                         }
                     }
                     item {
@@ -1135,6 +1149,27 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 settingsUpdateTrigger++
                 com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Auto Open Server set to $selectedServer")
                 showAutoOpenServerDialog = false
+            }
+        )
+    }
+
+    if (showDefaultUiDialog) {
+        OmniDefaultUiDialog(
+            currentPackage = prefManager.myPrefs.iptvAppPackageName,
+            onDismiss = { showDefaultUiDialog = false },
+            onSelect = { pkg, label ->
+                // Same three preferences AppListActivity writes, so the picker in Settings
+                // and this one stay interchangeable.
+                prefManager.myPrefs.iptvAppPackageName = pkg
+                prefManager.myPrefs.iptvAppName = label
+                prefManager.myPrefs.iptvAppLaunchActivity = ""
+                prefManager.savePreferences()
+
+                defaultUiLabel = omniDefaultUiLabel(pkg, label)
+                settingsUpdateTrigger++
+                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Default UI set to $label ($pkg)")
+                Toast.makeText(context, "Default UI: $label - applies on next app start", Toast.LENGTH_SHORT).show()
+                showDefaultUiDialog = false
             }
         )
     }
@@ -2332,6 +2367,126 @@ fun OmniServerListItem(
             )
         }
     }
+}
+
+/**
+ * Display name for whatever is currently set as the startup target. The built-in UIs are
+ * pseudo-packages rather than installed apps, so they are matched by package id; anything
+ * else is a real IPTV app and keeps its own name.
+ */
+fun omniDefaultUiLabel(pkg: String?, name: String?): String = when (pkg) {
+    "omni" -> "Omni UI"
+    "tvzone" -> "New TV UI"
+    "webtv" -> "WEB TV"
+    null, "" -> "None"
+    else -> name ?: "External app"
+}
+
+/**
+ * Single-select picker for the UI the app opens into. Writes the same preference the
+ * "Select IPTV Player" screen writes, so the two stay in sync.
+ */
+@Composable
+fun OmniDefaultUiDialog(
+    currentPackage: String?,
+    onDismiss: () -> Unit,
+    onSelect: (pkg: String, label: String) -> Unit
+) {
+    val options = listOf(
+        Triple("Omni UI", "omni", Icons.Default.GridView),
+        Triple("New TV UI", "tvzone", Icons.Default.Tv),
+        Triple("None (App Home)", "", Icons.Default.Home)
+    )
+    var selectedPkg by remember { mutableStateOf(currentPackage ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Default UI", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(
+                    "Choose which screen the app opens on launch:",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                options.forEach { (label, pkg, icon) ->
+                    val isSelected = selectedPkg == pkg
+                    var isItemFocused by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .onFocusChanged { isItemFocused = it.isFocused }
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (isItemFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                else Color.Transparent
+                            )
+                            .border(
+                                1.dp,
+                                if (isItemFocused) MaterialTheme.colorScheme.primary
+                                else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                selectedPkg = pkg
+                                onSelect(pkg, label)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = label,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                selectedPkg = pkg
+                                onSelect(pkg, label)
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+
+                // An external IPTV app matches none of the rows above; say so rather than
+                // showing an empty selection.
+                if (options.none { it.second == selectedPkg }) {
+                    Text(
+                        text = "Currently: ${omniDefaultUiLabel(currentPackage, null)} (an installed app). Picking an option above replaces it.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        textContentColor = MaterialTheme.colorScheme.onBackground,
+        titleContentColor = MaterialTheme.colorScheme.onBackground
+    )
 }
 
 @Composable
