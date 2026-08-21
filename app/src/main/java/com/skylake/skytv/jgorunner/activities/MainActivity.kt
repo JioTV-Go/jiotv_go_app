@@ -141,9 +141,18 @@ class MainActivity : FragmentActivity() {
         val appPackageName = preferenceManager.myPrefs.iptvAppPackageName
 
         if (!appPackageName.isNullOrEmpty()) {
-            if (appPackageName == "tvzone") {
-                preferenceManager.myPrefs.autoStartIPTV = false
-                currentScreen = "Zone"
+            // The built-in UIs are screens hosted by this activity, so they open straight
+            // away instead of going through the auto-start countdown a real IPTV app needs.
+            when (appPackageName) {
+                "tvzone" -> {
+                    preferenceManager.myPrefs.autoStartIPTV = false
+                    currentScreen = "Zone"
+                }
+
+                "omni" -> {
+                    preferenceManager.myPrefs.autoStartIPTV = false
+                    currentScreen = "OmniTv"
+                }
             }
         }
 
@@ -935,7 +944,7 @@ class MainActivity : FragmentActivity() {
 
                         var countdownTime = preferenceManager.myPrefs.iptvLaunchCountdown
                         countdownJob = CoroutineScope(Dispatchers.Main).launch {
-                            showRedirectPopup = (currentScreen != "Zone") &&
+                            showRedirectPopup = !isOnBuiltInIptvScreen() &&
                                     !preferenceManager.myPrefs.iptvAppPackageName.isNullOrEmpty()
 
 
@@ -966,7 +975,7 @@ class MainActivity : FragmentActivity() {
 
                             var countdownTime = preferenceManager.myPrefs.iptvLaunchCountdown
                             countdownJob = CoroutineScope(Dispatchers.Main).launch {
-                                showRedirectPopup = (currentScreen != "Zone") &&
+                                showRedirectPopup = !isOnBuiltInIptvScreen() &&
                                         !preferenceManager.myPrefs.iptvAppPackageName.isNullOrEmpty()
                                 shouldLaunchIPTV = true
 
@@ -1081,12 +1090,20 @@ class MainActivity : FragmentActivity() {
     }
 
 
+    /**
+     * The built-in UIs (TV UI, Omni UI) are screens hosted by this activity rather than
+     * separate apps, so "the selected IPTV target is already on screen" has to be decided
+     * by screen name, not by whether some package is running.
+     */
+    private fun isOnBuiltInIptvScreen(): Boolean =
+        currentScreen == "Zone" || currentScreen == "OmniTv"
+
     private fun startIPTV2() {
         val appPackageName = preferenceManager.myPrefs.iptvAppPackageName
         val appName = preferenceManager.myPrefs.iptvAppName
 
-        if (appPackageName.isNullOrEmpty() || currentScreen == "Zone") {
-            Log.d("JGX", "IPTV not set or already on Zone screen")
+        if (appPackageName.isNullOrEmpty() || isOnBuiltInIptvScreen()) {
+            Log.d("JGX", "IPTV not set, or a built-in UI is already showing")
             return
         }
 
@@ -1103,6 +1120,12 @@ class MainActivity : FragmentActivity() {
                         Log.d("JGX", "Opening TVZone")
                         toast("Starting TV")
                         currentScreen = "Zone"
+                    }
+
+                    "omni" -> runOnUiThread {
+                        Log.d("JGX", "Opening Omni UI")
+                        toast("Starting Omni UI")
+                        currentScreen = "OmniTv"
                     }
 
                     "sonata" -> {
@@ -1139,9 +1162,9 @@ class MainActivity : FragmentActivity() {
         val appLaunchActivity = preferenceManager.myPrefs.iptvAppLaunchActivity
         val appName = preferenceManager.myPrefs.iptvAppName
 
-        if (appPackageName.isNullOrEmpty() || currentScreen == "Zone") {
+        if (appPackageName.isNullOrEmpty() || isOnBuiltInIptvScreen()) {
             toast("IPTV app not selected")
-            Log.d("JGX", "IPTV app not selected or already on Zone screen")
+            Log.d("JGX", "IPTV app not selected, or a built-in UI is already showing")
             startActivity(Intent(this, AppListActivity::class.java))
             return
         }
@@ -1160,6 +1183,12 @@ class MainActivity : FragmentActivity() {
                     toast("Starting TV")
                     Log.d("JGX", "Opening TVZone")
                     currentScreen = "Zone"
+                }
+
+                "omni" -> {
+                    toast("Starting Omni UI")
+                    Log.d("JGX", "Opening Omni UI")
+                    currentScreen = "OmniTv"
                 }
 
                 "sonata" -> {

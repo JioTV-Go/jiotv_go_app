@@ -111,6 +111,12 @@ fun getInstalledApps(context: Context): Flow<AppInfo> = flow {
             launchActivity = ""
         ),
         AppInfo(
+            appName = "Omni UI",
+            icon = getDrawableOrFallback(context, R.mipmap.ic_launcher_alias2, fallbackIconResId),
+            packageName = "omni",
+            launchActivity = ""
+        ),
+        AppInfo(
             appName = "WEB TV - {browser based}",
             icon = getDrawableOrFallback(context, R.mipmap.ic_launcher_neo, fallbackIconResId),
             packageName = "webtv",
