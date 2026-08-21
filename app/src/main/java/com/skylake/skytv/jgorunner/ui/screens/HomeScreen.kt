@@ -84,6 +84,7 @@ fun HomeScreen(
     onRunIPTVButtonClick: () -> Unit,
     onWebTVButtonClick: () -> Unit,
     onDebugButtonClick: () -> Unit,
+    onOmniTvButtonClick: () -> Unit,
     onExitButtonClick: () -> Unit
 ) {
 
@@ -216,6 +217,11 @@ fun HomeScreen(
                 enabled = isServerRunning
             ) {
                 onDebugButtonClick()
+            }
+            OmniTvButton(
+                enabled = isServerRunning
+            ) {
+                onOmniTvButtonClick()
             }
             WebTVButton(
                 enabled = isServerRunning
@@ -428,6 +434,37 @@ fun RowScope.DebugButton(
         enabled = enabled
     ) {
         ButtonContent("TV", Icons.TwoTone.Landscape)
+    }
+}
+
+@Composable
+fun RowScope.OmniTvButton(
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val colorPRIME = MaterialTheme.colorScheme.primary
+    val colorSECOND = MaterialTheme.colorScheme.secondary
+    val buttonColor = remember { mutableStateOf(colorPRIME) }
+    val colorBORDER = Color(0xFFFFD700)
+    val isFocused = remember { mutableStateOf(false) }
+    Button(
+        onClick = {
+            onClick()
+        },
+        modifier = Modifier
+            .weight(1f)
+            .padding(8.dp)
+            .onFocusChanged { focusState ->
+                isFocused.value = focusState.isFocused
+                buttonColor.value = if (focusState.isFocused) colorSECOND else colorPRIME
+            },
+        shape = RoundedCornerShape(8.dp),
+        border = if (isFocused.value) BorderStroke(2.dp, colorBORDER) else null,
+        colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
+        contentPadding = PaddingValues(2.dp),
+        enabled = enabled
+    ) {
+        ButtonContent("Omni TV", Icons.AutoMirrored.TwoTone.DirectionsRun)
     }
 }
 

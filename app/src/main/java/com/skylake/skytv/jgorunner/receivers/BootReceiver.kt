@@ -34,6 +34,14 @@ class BootReceiver : BroadcastReceiver() {
                 startBinaryService(context)
             }
         }
+
+        if (preferenceManager.myPrefs.omniAutoStartAppOnBoot) {
+            try {
+                launchMainActivity(context)
+            } catch (e: Exception) {
+                Log.e(TAG, "Auto-launch on boot failed: ${e.message}", e)
+            }
+        }
     }
 
     private fun startBinaryService(context: Context) {

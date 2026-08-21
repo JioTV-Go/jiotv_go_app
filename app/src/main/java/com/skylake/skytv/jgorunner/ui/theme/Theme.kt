@@ -47,8 +47,7 @@ fun JGOTheme(
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    var useDarkTheme = darkTheme
-    if (!darkTheme && themeOverride) useDarkTheme = true
+    val useDarkTheme = themeOverride
 
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
