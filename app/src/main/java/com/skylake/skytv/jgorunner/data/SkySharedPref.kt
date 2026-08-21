@@ -139,6 +139,11 @@ class SkySharedPref(context: Context) {
         myPrefs = SharedPrefStructure() // Reset preferences after clearing
     }
 
+    // Reload all preferences from shared storage
+    fun reloadPreferences() {
+        myPrefs = readFromSharedPreferences()
+    }
+
     // Data class to store shared preferences keys and values
     data class SharedPrefStructure(
         @SharedPrefKey("serve_local") var serveLocal: Boolean = false,
@@ -172,7 +177,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("currentPort") var currentPort: Int = 0,
         @SharedPrefKey("recentChannels") var recentChannels: String? = "",
         @SharedPrefKey("operationMODE") var operationMODE: Int = 999,
-        @SharedPrefKey("darkMODE") var darkMODE: Boolean = false,
+        @SharedPrefKey("darkMODE") var darkMODE: Boolean = true,
         @SharedPrefKey("selectedScreenTV") var selectedScreenTV: String? = "0",
         @SharedPrefKey("selectedRemoteNavTV") var selectedRemoteNavTV: String? = "0",
         @SharedPrefKey("custURL") var custURL: String? = "",
@@ -184,6 +189,7 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("startTvAutomatically") var startTvAutomatically: Boolean = false,
         @SharedPrefKey("startTvAutoDelay") var startTvAutoDelay: Boolean = false,
         @SharedPrefKey("startTvAutoDelayTime") var startTvAutoDelayTime: Int = 2,
+        @SharedPrefKey("freeOnly") var freeOnly: Boolean = true,
         @SharedPrefKey("currChannelName") var currChannelName: String? = "",
         @SharedPrefKey("currChannelLogo") var currChannelLogo: String? = "",
         @SharedPrefKey("currChannelUrl") var currChannelUrl: String? = "",
@@ -197,6 +203,14 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("enable_pip") var enablePip: Boolean = false,
         @SharedPrefKey("showEPG") var showEPG: Boolean = true,
 
+        // Omni TV layout prefs
+        @SharedPrefKey("freeJioCatchup") var freeJioCatchup: Boolean = false,
+        @SharedPrefKey("filterLI2") var filterLI2: String? = "",
+        @SharedPrefKey("filterCI2") var filterCI2: String? = "",
+        @SharedPrefKey("homeIptvEnabled") var homeIptvEnabled: Boolean = true,
+        @SharedPrefKey("showRecentTab") var showRecentTab: Boolean = true,
+        @SharedPrefKey("selectedZoneTabTV") var selectedZoneTabTV: Int = 0,
+
         // Widget-specific preferences
         @SharedPrefKey("widget_show_logs") var widgetShowLogs: Boolean = false,
         @SharedPrefKey("widget_logs") var widgetLogs: String? = "",
@@ -208,8 +222,19 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("cachedReleaseUrl") var cachedReleaseUrl: String? = null,
         @SharedPrefKey("cachedReleaseSize") var cachedReleaseSize: Long = 0L,
 
-
-        )
+        // Omni UI preferences
+        @SharedPrefKey("omni_favorites_json") var omniFavoritesJson: String? = "[]",
+        @SharedPrefKey("omniAutoplayFirstChannel") var omniAutoplayFirstChannel: Boolean = false,
+        @SharedPrefKey("omniAutoplayLastChannel") var omniAutoplayLastChannel: Boolean = false,
+        @SharedPrefKey("omniEnableSwipeGestures") var omniEnableSwipeGestures: Boolean = true,
+        @SharedPrefKey("omniEnableDoubleTapSeek") var omniEnableDoubleTapSeek: Boolean = true,
+        @SharedPrefKey("omniAnimationEnabled") var omniAnimationEnabled: Boolean = true,
+        @SharedPrefKey("omni_quality_max_height") var omniQualityMaxHeight: Int = 0,
+        @SharedPrefKey("omni_selected_categories") var omniSelectedCategories: String? = "[]",
+        @SharedPrefKey("omni_selected_languages") var omniSelectedLanguages: String? = "[]",
+        @SharedPrefKey("omni_autostart_app_boot") var omniAutoStartAppOnBoot: Boolean = false,
+        @SharedPrefKey("omni_auto_open_server") var omniAutoOpenServer: String? = "Jio"
+    )
 
 
     // Annotation class to define the key for SharedPreferences

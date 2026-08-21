@@ -29,6 +29,12 @@ object PlayerCommandBus {
     @Volatile
     private var stopPlaybackHandler: (() -> Unit)? = null
 
+    @Volatile
+    private var pausePlaybackHandler: (() -> Unit)? = null
+
+    @Volatile
+    var currentPlayingServerUrl: String? = null
+
     /** True when the Activity is in Picture-in-Picture mode. */
     @Volatile
     var isInPipMode: Boolean = false
@@ -108,6 +114,14 @@ object PlayerCommandBus {
 
     fun requestStopPlayback() {
         stopPlaybackHandler?.invoke()
+    }
+
+    fun setOnPausePlayback(handler: (() -> Unit)?) {
+        pausePlaybackHandler = handler
+    }
+
+    fun requestPausePlayback() {
+        pausePlaybackHandler?.invoke()
     }
 
     fun setOnPipModeChanged(handler: ((Boolean) -> Unit)?) {

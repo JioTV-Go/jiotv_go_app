@@ -9,6 +9,65 @@ import java.net.URL
 import kotlin.math.min
 import kotlin.math.pow
 
+enum class LocalServerProbeStatus {
+    READY,
+    RUNNING_BUT_LOGIN_REQUIRED,
+    UNREACHABLE
+}
+
+suspend fun probeLocalServer(port: Int = 5350): LocalServerProbeStatus = withContext(Dispatchers.IO) {
+    val streamEndpoint = "http://localhost:$port/live/143.m3u8"
+    val reachabilityEndpoint = "http://localhost:$port/playlist.m3u"
+
+    var serverReachable = false
+    var loggedIn = false
+
+    fun request(url: String, method: String, followRedirects: Boolean): Int? {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 4000
+            readTimeout = 4000
+            instanceFollowRedirects = followRedirects
+        }
+        return try {
+            connection.responseCode
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    try {
+        val reachCode = request(reachabilityEndpoint, "HEAD", followRedirects = false)
+        if (reachCode != null) {
+            serverReachable = true
+            Log.d("ServerLoginCheck", "Reachability probe $reachabilityEndpoint -> $reachCode")
+        }
+    } catch (e: Exception) {
+        Log.w("ServerLoginCheck", "Reachability probe failed", e)
+    }
+
+    try {
+        val streamCode = request(streamEndpoint, "GET", followRedirects = false)
+        if (streamCode != null) {
+            serverReachable = true
+            Log.d("ServerLoginCheck", "Stream probe $streamEndpoint -> $streamCode")
+            if (streamCode in 200..399) {
+                loggedIn = true
+            }
+        }
+    } catch (e: Exception) {
+        serverReachable = true
+        Log.w("ServerLoginCheck", "Stream probe failed (treated as login required)", e)
+    }
+
+    when {
+        loggedIn -> LocalServerProbeStatus.READY
+        serverReachable -> LocalServerProbeStatus.RUNNING_BUT_LOGIN_REQUIRED
+        else -> LocalServerProbeStatus.UNREACHABLE
+    }
+}
+
+
 suspend fun checkServerStatus(
     port: Int = 5350,
     onLoginSuccess: () -> Unit,
