@@ -73,11 +73,31 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.Build
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.lazy.grid.items
 import com.skylake.skytv.jgorunner.services.BinaryService
 import java.io.File
 import com.skylake.skytv.jgorunner.utils.LogCollector
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import com.google.gson.reflect.TypeToken
+import com.skylake.skytv.jgorunner.activities.MainActivity
+import com.skylake.skytv.jgorunner.data.OmniDataManager
+import com.skylake.skytv.jgorunner.services.player.PlayerCommandBus
+import com.skylake.skytv.jgorunner.utils.DeviceUtils
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -90,7 +110,7 @@ data class OmniServer(
     val isFavoriteServer: Boolean = false
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val prefManager = remember { SkySharedPref.getInstance(context) }
@@ -138,12 +158,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     var selectedCategories by remember {
         val json = prefManager.myPrefs.omniSelectedCategories ?: "[]"
-        val type = object : com.google.gson.reflect.TypeToken<Set<String>>() {}.type
+        val type = object : TypeToken<Set<String>>() {}.type
         mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
     }
     var selectedLanguages by remember {
         val json = prefManager.myPrefs.omniSelectedLanguages ?: "[]"
-        val type = object : com.google.gson.reflect.TypeToken<Set<String>>() {}.type
+        val type = object : TypeToken<Set<String>>() {}.type
         mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
     }
 
@@ -174,6 +194,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showLogDialog by remember { mutableStateOf(false) }
     var favoriteRefreshTick by remember { mutableIntStateOf(0) }
     val favoritesStore = remember { OmniFavoritesStore(prefManager) }
+    var gridColumnCount by remember(settingsUpdateTrigger) { mutableIntStateOf(prefManager.myPrefs.omniGridColumnCount ?: 0) }
+    var showGridColumnDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentServer) {
         hasAutoplayed = false
@@ -181,7 +203,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     LaunchedEffect(isSidebarVisible) {
         if (isSidebarVisible) {
-            favoriteRefreshTick++
+            Log.d(TAG,"favoriteRefreshTick++")
         }
     }
 
@@ -229,7 +251,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         val lastPlayedUrl = prefManager.myPrefs.currChannelUrl?.trim().orEmpty()
         val lastPlayedName = prefManager.myPrefs.currChannelName?.trim().orEmpty()
 
-        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, filtered channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
+        LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, filtered channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
 
         if (hasAutoplayed || channelList.isEmpty()) return
         if (!autoFirst && !autoLast) return
@@ -251,24 +273,24 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         if (targetChannel != null) {
             hasAutoplayed = true
             val targetIndex = channelList.indexOf(targetChannel).coerceAtLeast(0)
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} filtered channels)")
-            com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = channelList
+            LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} filtered channels)")
+            OmniDataManager.currentChannelList = channelList
             try {
-                com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
+                PlayerCommandBus.requestClosePip()
             } catch (_: Exception) {}
             val intent = Intent(context, OmniPlayerActivity::class.java).apply {
                 putExtra("channel_index", targetIndex)
             }
             context.startActivity(intent)
         } else {
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} filtered channels")
+            LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} filtered channels")
         }
     }
 
     // Load channels on server change or favorites refresh
     LaunchedEffect(currentServer, favoriteRefreshTick) {
         if (currentServer.url == FAVORITES_SERVER_URL) {
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loading Favorites server channels")
+            LogCollector.log("Omni: Loading Favorites server channels")
             if (fullChannelList.isEmpty()) {
                 try {
                     fullChannelList = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
@@ -296,26 +318,26 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
             isLoading = false
             errorMessage = null
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Loaded ${channels.size} favorite channels")
+            LogCollector.log("Omni: Loaded ${channels.size} favorite channels")
             triggerAutoplay(channels)
         } else {
             isLoading = true
             errorMessage = null
             try {
-                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Fetching channels from server: ${currentServer.name} (Port: $port)")
+                LogCollector.log("Omni: Fetching channels from server: ${currentServer.name} (Port: $port)")
                 val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
                 fullChannelList = fetched
                 channels = fetched
                 if (fetched.isEmpty()) {
                     errorMessage = "No channels found."
-                    com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Channels fetch returned empty list.")
+                    LogCollector.log("Omni: Channels fetch returned empty list.")
                 } else {
-                    com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Successfully loaded ${fetched.size} channels from ${currentServer.name}")
+                    LogCollector.log("Omni: Successfully loaded ${fetched.size} channels from ${currentServer.name}")
                     triggerAutoplay(fetched)
                 }
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Failed to load channels."
-                com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Failed to load channels from server", e)
+                LogCollector.logError("Omni: Failed to load channels from server", e)
             }
             isLoading = false
         }
@@ -339,13 +361,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             isSearchVisible -> isSearchVisible = false
             isSidebarVisible -> isSidebarVisible = false
             else -> {
-                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Back pressed -> navigating to Home")
+                LogCollector.log("Omni: Back pressed -> navigating to Home")
                 onNavigate("Home")
             }
         }
     }
 
-    val isTv = com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context)
+    val isTv = DeviceUtils.isTvDevice(context)
     val drawerWidth = if (isTv) 300.dp else 244.dp
 
     val bgColor = if (isDarkMode) Color(0xFF121212) else Color(0xFFF5F5F5)
@@ -412,7 +434,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 scope.launch {
                                     isLoading = true
                                     try {
-                                        com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Force refreshing channels from server...")
+                                        LogCollector.log("Omni: Force refreshing channels from server...")
                                         repository.clearCache()
                                         val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port, forceRefresh = true) }
                                         fullChannelList = fetched
@@ -420,7 +442,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                         errorMessage = null
                                     } catch (e: Exception) {
                                         errorMessage = e.localizedMessage
-                                        com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Refresh failed", e)
+                                        LogCollector.logError("Omni: Refresh failed", e)
                                     }
                                     isLoading = false
                                 }
@@ -476,7 +498,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     onSelected = {
                                         if (currentServer.url != server.url) {
                                             currentServer = server
-                                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Switched server to: ${server.name} (${server.url})")
+                                            LogCollector.log("Omni: Switched server to: ${server.name} (${server.url})")
                                         }
                                     }
                                 )
@@ -499,7 +521,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniSelectedCategories = "[]"
                             prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
-                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Cleared filter selections")
+                            LogCollector.log("Omni: Cleared filter selections")
                         }
                     }
 
@@ -510,9 +532,17 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             showAutoOpenServerDialog = true
                         }
                     }
+
+                    item {
+                        val columnLabel = if (gridColumnCount <= 0) "Auto" else "$gridColumnCount"
+                        OmniSettingsActionItem("Grid Columns: $columnLabel", Icons.Default.ViewModule, enabled = true) {
+                            showGridColumnDialog = true
+                        }
+                    }
+
                     item {
                         var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
-                        OmniSettingsToggle("Autoplay 1st CH", checked) {
+                        OmniSettingsToggle("Autoplay: First Channel", checked) {
                             checked = it
                             prefManager.myPrefs.omniAutoplayFirstChannel = it
                             prefManager.savePreferences()
@@ -520,7 +550,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     }
                     item {
                         var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayLastChannel) }
-                        OmniSettingsToggle("Autoplay Last Played CH", checked) {
+                        OmniSettingsToggle("Autoplay: Last Played", checked) {
                             checked = it
                             prefManager.myPrefs.omniAutoplayLastChannel = it
                             prefManager.savePreferences()
@@ -528,7 +558,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     }
                     item {
                         var pipChecked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.enablePip) }
-                        OmniSettingsToggle("Enable PiP", pipChecked) {
+                        OmniSettingsToggle("Enable PIP", pipChecked) {
                             pipChecked = it
                             prefManager.myPrefs.enablePip = it
                             prefManager.savePreferences()
@@ -566,7 +596,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             isDarkMode = checked
                             prefManager.myPrefs.darkMODE = checked
                             prefManager.savePreferences()
-                            (context as? com.skylake.skytv.jgorunner.activities.MainActivity)?.isSwitchDarkMode = checked
+                            (context as? MainActivity)?.isSwitchDarkMode = checked
                         }
                     }
                     item {
@@ -575,7 +605,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             autobootChecked = checked
                             prefManager.myPrefs.omniAutoStartAppOnBoot = checked
                             prefManager.savePreferences()
-                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Autostart on Boot set to $checked")
+                            LogCollector.log("Omni: Autostart on Boot set to $checked")
                         }
                     }
                     item {
@@ -716,11 +746,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                             value = searchQuery,
                                             onValueChange = { searchQuery = it },
                                             singleLine = true,
-                                            textStyle = androidx.compose.ui.text.TextStyle(
+                                            textStyle = TextStyle(
                                                 fontSize = 12.sp,
                                                 color = MaterialTheme.colorScheme.onBackground
                                             ),
-                                            cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .onFocusChanged { isSearchFocused = it.isFocused }
@@ -862,7 +892,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         CompositionLocalProvider(
-                            LocalMinimumInteractiveComponentSize provides 0.dp
+                            androidx.compose.foundation.LocalOverscrollConfiguration provides null
                         ) {
                             Checkbox(
                                 checked = freeOnly,
@@ -876,7 +906,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                         Text(
                             text = "Free",
-                            style = androidx.compose.ui.text.TextStyle(
+                            style = TextStyle(
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -917,7 +947,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                         Text(
                             text = "Catchup",
-                            style = androidx.compose.ui.text.TextStyle(
+                            style = TextStyle(
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -989,7 +1019,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 text = "Long-press any channel on Jio to add it to your favorites.",
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 fontSize = 12.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -1005,12 +1035,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     scope.launch {
                                         isLoading = true
                                         try {
-                                            com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Retrying channel fetch from server: ${currentServer.name}")
+                                            LogCollector.log("Omni: Retrying channel fetch from server: ${currentServer.name}")
                                             channels = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
                                             errorMessage = null
                                         } catch (e: Exception) {
                                             errorMessage = e.localizedMessage
-                                            com.skylake.skytv.jgorunner.utils.LogCollector.logError("Omni: Retry failed", e)
+                                            LogCollector.logError("Omni: Retry failed", e)
                                         }
                                         isLoading = false
                                     }
@@ -1037,33 +1067,64 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     }
                 }
                 else -> {
+                    val currentFavorites = remember(favoriteRefreshTick) {
+                        favoritesStore.load().map { it.name }.toSet()
+                    }
+
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = if (isTv) 112.dp else 100.dp),
+                        columns = if (gridColumnCount > 0) {
+                            GridCells.Fixed(gridColumnCount)
+                        } else {
+                            GridCells.Adaptive(minSize = if (isTv) 112.dp else 100.dp)
+                        },
                         contentPadding = PaddingValues(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         itemsIndexed(filteredChannels) { index, channel ->
+                            val isFav = currentFavorites.contains(channel.name)
                             OmniChannelGridItem(
                                 channel = channel,
-                                modifier = if (index == 0) Modifier.focusRequester(firstChannelFocusRequester) else Modifier,
+                                isFavorite = isFav,
+                                modifier = if (index == 0) Modifier.focusRequester(
+                                    firstChannelFocusRequester
+                                ) else Modifier,
                                 onSelected = {
                                     prefManager.myPrefs.currChannelName = channel.name
-                                    prefManager.myPrefs.currChannelUrl = channel.url ?: channel.m3u8Url ?: channel.mpdUrl
+                                    prefManager.myPrefs.currChannelUrl =
+                                        channel.url ?: channel.m3u8Url ?: channel.mpdUrl
                                     prefManager.savePreferences()
                                     if (freeJioCatchup) {
                                         catchupChannelTarget = channel
                                     } else {
-                                        com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = filteredChannels
-                                        if (com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.isInPipMode) {
+                                        OmniDataManager.currentChannelList =
+                                            filteredChannels
+                                        if (PlayerCommandBus.isInPipMode) {
                                             try {
-                                                com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
-                                            } catch (_: Exception) {}
+                                                PlayerCommandBus.requestClosePip()
+                                            } catch (_: Exception) {
+                                            }
                                         }
-                                        val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                                            putExtra("channel_index", index)
-                                        }
+                                        val intent =
+                                            Intent(context, OmniPlayerActivity::class.java).apply {
+                                                putExtra("channel_index", index)
+                                            }
                                         context.startActivity(intent)
+                                    }
+                                },
+                                onLongClick = {
+                                    val isFav = favoritesStore.load().any { it.name == channel.name }
+
+                                    if (isFav) {
+                                        favoritesStore.remove(channel.name ?: "")
+                                        Toast.makeText(context, "${channel.name} - removed from Favorites", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        favoritesStore.add(channel)
+                                        Toast.makeText(context, "${channel.name} - added to Favorites", Toast.LENGTH_SHORT).show()
+                                    }
+
+                                    if (currentServer.url == FAVORITES_SERVER_URL) {
+                                        favoriteRefreshTick++
                                     }
                                 }
                             )
@@ -1082,10 +1143,10 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 context = context,
                 preferenceManager = prefManager,
                 onPlayChannel = { resolvedChannel ->
-                    com.skylake.skytv.jgorunner.data.OmniDataManager.currentChannelList = listOf(resolvedChannel)
-                    if (com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.isInPipMode) {
+                    OmniDataManager.currentChannelList = listOf(resolvedChannel)
+                    if (PlayerCommandBus.isInPipMode) {
                         try {
-                            com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.requestClosePip()
+                            PlayerCommandBus.requestClosePip()
                         } catch (_: Exception) {}
                     }
                     val intent = Intent(context, OmniPlayerActivity::class.java).apply {
@@ -1113,6 +1174,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 prefManager.myPrefs.omniSelectedCategories = gson.toJson(it)
                 prefManager.savePreferences()
                 showCategoryDialog = false
+            },
+            onReset = {
+                // Clear the selections and save
+                selectedCategories = emptySet()
+                prefManager.myPrefs.omniSelectedCategories = "[]"
+                prefManager.savePreferences()
+                showCategoryDialog = false
             }
         )
     }
@@ -1134,6 +1202,36 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 prefManager.myPrefs.omniSelectedLanguages = gson.toJson(it)
                 prefManager.savePreferences()
                 showLanguageDialog = false
+            },
+            onReset = {
+                selectedLanguages = emptySet()
+                prefManager.myPrefs.omniSelectedLanguages = "[]"
+                prefManager.savePreferences()
+                showLanguageDialog = false
+            }  )
+    }
+
+    if (showGridColumnDialog) {
+        val maxCols = if (isTv) 12 else 12
+        val options = listOf("Auto") + (2..maxCols).map { it.toString() }
+        val currentSelection = if (gridColumnCount <= 0) "Auto" else gridColumnCount.toString()
+
+        MultiSelectFilterDialog(
+            title = "Grid Columns",
+            options = options,
+            selectedOptions = setOf(currentSelection),
+            singleSelect = true,
+            onDismiss = { showGridColumnDialog = false },
+            onConfirm = { selected ->
+                val selectedStr = selected.firstOrNull() ?: "Auto"
+                val newCount = if (selectedStr == "Auto") 0 else selectedStr.toIntOrNull() ?: 0
+
+                gridColumnCount = newCount
+                prefManager.myPrefs.omniGridColumnCount = newCount
+                prefManager.savePreferences()
+                settingsUpdateTrigger++
+
+                showGridColumnDialog = false
             }
         )
     }
@@ -1147,7 +1245,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 prefManager.myPrefs.omniAutoOpenServer = selectedServer
                 prefManager.savePreferences()
                 settingsUpdateTrigger++
-                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Auto Open Server set to $selectedServer")
+                LogCollector.log("Omni: Auto Open Server set to $selectedServer")
                 showAutoOpenServerDialog = false
             }
         )
@@ -1167,7 +1265,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
                 defaultUiLabel = omniDefaultUiLabel(pkg, label)
                 settingsUpdateTrigger++
-                com.skylake.skytv.jgorunner.utils.LogCollector.log("Omni: Default UI set to $label ($pkg)")
+                LogCollector.log("Omni: Default UI set to $label ($pkg)")
                 Toast.makeText(context, "Default UI: $label - applies on next app start", Toast.LENGTH_SHORT).show()
                 showDefaultUiDialog = false
             }
@@ -1204,14 +1302,22 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Compact channel grid item
 // ──────────────────────────────────────────────────────────────────────────────
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OmniChannelGridItem(
     channel: OmniChannel,
+    isFavorite: Boolean,
     modifier: Modifier = Modifier,
-    onSelected: () -> Unit
+    onSelected: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isFocused) 1.1f else 1.0f)
+
+    // --- State for tracking hardware key long presses ---
+    val scope = rememberCoroutineScope()
+    var keyPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var isLongPressHandled by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -1221,7 +1327,42 @@ fun OmniChannelGridItem(
             .clip(RoundedCornerShape(8.dp))
             .background(if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
             .border(2.dp, if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
-            .clickable { onSelected() }
+            // Intercept hardware keys directly for the emulator/D-pad
+            .onPreviewKeyEvent { event ->
+                val isActionKey = event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
+                if (isActionKey) {
+                    when (event.type) {
+                        KeyEventType.KeyDown -> {
+                            // If it's the first keydown, start the timer.
+                            // (We check null to ignore the repeating KeyDown spam while holding).
+                            if (keyPressJob == null) {
+                                isLongPressHandled = false
+                                keyPressJob = scope.launch {
+                                    kotlinx.coroutines.delay(500) // 500ms long press threshold
+                                    isLongPressHandled = true
+                                    onLongClick()
+                                }
+                            }
+                            return@onPreviewKeyEvent true // Consume the event
+                        }
+                        KeyEventType.KeyUp -> {
+                            keyPressJob?.cancel()
+                            keyPressJob = null
+                            if (!isLongPressHandled) {
+                                onSelected() // Trigger normal click if released before timer finished
+                            }
+                            isLongPressHandled = false
+                            return@onPreviewKeyEvent true // Consume the event
+                        }
+                    }
+                }
+                false
+            }
+            // Keep combinedClickable for native touch/mouse interactions
+            .combinedClickable(
+                onClick = onSelected,
+                onLongClick = onLongClick
+            )
             .padding(4.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1237,17 +1378,51 @@ fun OmniChannelGridItem(
                     contentScale = ContentScale.Fit
                 )
                 if (channel.name?.contains("HD", ignoreCase = true) == true) {
+                    // Dynamically adapts to light/dark mode based on your app's theme
+                    val badgeBg = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                    val redAccent = Color(0xFFD32F2F)
+
                     Surface(
-                        color = Color.Red,
-                        shape = RoundedCornerShape(2.dp),
-                        modifier = Modifier.align(Alignment.TopEnd).padding(2.dp)
+                        color = badgeBg,
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, redAccent),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
                     ) {
                         Text(
-                            "HD",
-                            color = Color.White,
-                            fontSize = 7.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 2.dp)
+                            text = "HD",
+                            color = redAccent,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.5.sp,
+                            // 1. Remove the hidden default font padding
+                            style = androidx.compose.ui.text.TextStyle(
+                                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                    includeFontPadding = false
+                                ),
+                                lineHeight = 8.sp // Force line height to match font size
+                            ),
+                            // 2. Reduce the explicit vertical padding
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                if (isFavorite) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), // Adapts to light/dark mode
+                        shape = CircleShape, // A circular badge suits the star perfectly
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp) // Matches the outer padding of the HD badge for visual balance
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Favorite",
+                            tint = Color(0xFFFFB300), // A slightly deeper, richer Material Gold/Amber
+                            modifier = Modifier
+                                .padding(3.dp) // Gives the star some breathing room inside the circle
+                                .size(14.dp)   // Slightly scaled down to fit nicely in the badge
                         )
                     }
                 }
@@ -1370,7 +1545,10 @@ fun OmniSettingsToggle(
             checked = checked,
             onCheckedChange = null,
             modifier = Modifier.scale(0.7f),
-            colors = SwitchDefaults.colors(checkedThumbColor = MaterialTheme.colorScheme.primary)
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary
+            )
         )
     }
 }
@@ -1414,7 +1592,7 @@ fun OmniSettingsActionItem(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Multi select filter dialog (mirrors OmniFilterDialog exactly)
+// Multi select filter dialog (Optimized for TV & Phone - No Scrolling)
 // ──────────────────────────────────────────────────────────────────────────────
 @Composable
 fun MultiSelectFilterDialog(
@@ -1427,88 +1605,181 @@ fun MultiSelectFilterDialog(
     onReset: (() -> Unit)? = null
 ) {
     var currentSelection by remember { mutableStateOf(selectedOptions) }
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val screenHeight = configuration.screenHeightDp
 
-    Dialog(onDismissRequest = onDismiss) {
+    // Dynamically calculate grid columns based on screen width & orientation
+    val columnCount = when {
+        screenWidth >= 900 -> if (options.size > 12) 4 else 3   // Android TV / Large Tablets
+        screenWidth >= 600 -> if (options.size > 8) 3 else 2    // Foldables / Phone Landscape
+        else -> if (options.size > 6) 2 else 1                  // Phone Portrait
+    }
+
+    val dialogWidthFraction = when {
+        screenWidth >= 900 -> 0.78f
+        screenWidth >= 600 -> 0.85f
+        else -> 0.94f
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF222222),
+            color = Color.Transparent,
             modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .fillMaxHeight(0.85f)
-                .border(1.dp, Color.Gray, RoundedCornerShape(16.dp))
+                .fillMaxWidth(dialogWidthFraction)
+                .wrapContentHeight()
+                .padding(horizontal = 8.dp, vertical = 12.dp)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.Cyan,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(options) { option ->
-                        FilterItemRow(
-                            label = option,
-                            isSelected = currentSelection.contains(option),
-                            onToggle = { selected ->
-                                if (singleSelect) {
-                                    if (selected) {
-                                        onConfirm(setOf(option))
-                                    } else {
-                                        onConfirm(emptySet())
-                                    }
-                                } else {
-                                    currentSelection = if (selected) {
-                                        currentSelection + option
-                                    } else {
-                                        currentSelection - option
-                                    }
-                                }
-                            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF1B1D22).copy(alpha = 0.98f),
+                                Color(0xFF101216).copy(alpha = 0.98f)
+                            )
                         )
-                    }
-                }
-
-                Row(
+                    )
+                    .border(1.dp, Color.Cyan.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+            ) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.End
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    if (onReset != null) {
-                        var isResetFocused by remember { mutableStateOf(false) }
-                        TextButton(
-                            onClick = onReset,
-                            modifier = Modifier
-                                .onFocusChanged { isResetFocused = it.isFocused }
-                                .background(if (isResetFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
-                                .border(1.dp, if (isResetFocused) Color.Red else Color.Transparent, RoundedCornerShape(4.dp))
-                        ) {
-                            Text("Reset", color = Color.Red)
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                    }
-                    var isCancelFocused by remember { mutableStateOf(false) }
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .onFocusChanged { isCancelFocused = it.isFocused }
-                            .background(if (isCancelFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(4.dp))
-                            .border(1.dp, if (isCancelFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(4.dp))
+                    // --- Compact Header ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Cancel", color = Color.Gray)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = title,
+                                fontSize = 16.sp,
+                                color = Color.Cyan,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.4.sp
+                            )
+                            if (!singleSelect && currentSelection.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    color = Color.Cyan.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                ) {
+                                    Text(
+                                        text = "${currentSelection.size}",
+                                        color = Color.Cyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Quick Select/Clear All (Only for multi-select)
+                        if (!singleSelect && options.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        currentSelection = if (currentSelection.size == options.size) emptySet() else options.toSet()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text(
+                                        text = if (currentSelection.size == options.size) "Clear All" else "Select All",
+                                        fontSize = 11.sp,
+                                        color = Color.Cyan.copy(alpha = 0.85f),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
                     }
-                    if (!singleSelect) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        var isApplyFocused by remember { mutableStateOf(false) }
-                        Button(
-                            onClick = { onConfirm(currentSelection) },
-                            colors = ButtonDefaults.buttonColors(containerColor = if (isApplyFocused) Color.White else Color.Cyan),
-                            modifier = Modifier
-                                .onFocusChanged { isApplyFocused = it.isFocused }
-                                .border(1.dp, if (isApplyFocused) Color.Cyan else Color.Transparent, ButtonDefaults.shape)
-                        ) {
-                            Text("Apply", color = Color.Black, fontWeight = FontWeight.Bold)
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
+                        color = Color.Cyan.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
+
+                    // --- Compact Multi-Column Grid (Items fit without scrolling) ---
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(columnCount),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = (screenHeight * 0.65f).dp),
+                        contentPadding = PaddingValues(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        items(options) { option ->
+                            FilterItemRow(
+                                label = option,
+                                isSelected = currentSelection.contains(option),
+                                singleSelect = singleSelect,
+                                onToggle = { selected ->
+                                    if (singleSelect) {
+                                        if (selected) {
+                                            onConfirm(setOf(option))
+                                        } else {
+                                            onConfirm(emptySet())
+                                        }
+                                    } else {
+                                        currentSelection = if (selected) {
+                                            currentSelection + option
+                                        } else {
+                                            currentSelection - option
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                        color = Color.Cyan.copy(alpha = 0.2f),
+                        thickness = 1.dp
+                    )
+
+                    // --- Compact Action Buttons ---
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onReset != null) {
+                            DialogActionButton(
+                                text = "Reset",
+                                baseColor = Color(0xFFFF5252),
+                                onClick = onReset
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+
+                        DialogActionButton(
+                            text = "Cancel",
+                            baseColor = Color.Cyan,
+                            isFilled = false,
+                            onClick = onDismiss
+                        )
+
+                        if (!singleSelect) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            DialogActionButton(
+                                text = "Apply",
+                                baseColor = Color.Cyan,
+                                isFilled = true,
+                                onClick = { onConfirm(currentSelection) }
+                            )
                         }
                     }
                 }
@@ -1521,38 +1792,130 @@ fun MultiSelectFilterDialog(
 fun FilterItemRow(
     label: String,
     isSelected: Boolean,
+    singleSelect: Boolean = false,
     onToggle: (Boolean) -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val bgColor by animateColorAsState(if (isFocused) Color.Cyan.copy(alpha = 0.1f) else Color.Transparent)
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1.0f,
+        animationSpec = tween(150),
+        label = "row_scale"
+    )
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 1.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
-            .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(8.dp))
+            .scale(scale)
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable { onToggle(!isSelected) }
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Checkbox(
-            checked = isSelected,
-            onCheckedChange = null,
-            colors = CheckboxDefaults.colors(
-                checkedColor = Color.Cyan,
-                uncheckedColor = if (isFocused) Color.White else Color.Gray
-            ),
-            modifier = Modifier.size(20.dp)
+            .clickable { onToggle(!isSelected) },
+        shape = RoundedCornerShape(8.dp),
+        color = when {
+            isFocused -> Color.Cyan.copy(alpha = 0.28f)
+            isSelected -> Color.Cyan.copy(alpha = 0.15f)
+            else -> Color.White.copy(alpha = 0.04f)
+        },
+        border = BorderStroke(
+            width = if (isFocused) 2.dp else if (isSelected) 1.dp else 0.5.dp,
+            color = when {
+                isFocused -> Color.Cyan
+                isSelected -> Color.Cyan.copy(alpha = 0.7f)
+                else -> Color.White.copy(alpha = 0.12f)
+            }
         )
-        Spacer(modifier = Modifier.width(10.dp))
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            // Icon / Indicator
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(if (singleSelect) CircleShape else RoundedCornerShape(4.dp))
+                    .background(
+                        if (isSelected) Color.Cyan else Color.Transparent
+                    )
+                    .border(
+                        1.dp,
+                        if (isSelected) Color.Cyan else if (isFocused) Color.White else Color.Gray.copy(alpha = 0.5f),
+                        if (singleSelect) CircleShape else RoundedCornerShape(4.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            Text(
+                text = label,
+                color = if (isFocused || isSelected) Color.Cyan else Color.White,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected || isFocused) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun DialogActionButton(
+    text: String,
+    baseColor: Color,
+    onClick: () -> Unit,
+    isFilled: Boolean = false
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.05f else 1.0f,
+        animationSpec = tween(120),
+        label = "btn_scale"
+    )
+
+    val textColor = when {
+        isFilled && isFocused -> Color.White
+        isFilled -> Color.Black
+        isFocused -> baseColor
+        else -> Color.White.copy(alpha = 0.8f)
+    }
+
+    val bgColor = when {
+        isFilled && isFocused -> baseColor.copy(alpha = 0.85f)
+        isFilled -> baseColor
+        isFocused -> baseColor.copy(alpha = 0.18f)
+        else -> Color.Transparent
+    }
+
+    Box(
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(6.dp))
+            .onFocusChanged { isFocused = it.isFocused }
+            .background(bgColor)
+            .border(
+                width = if (isFocused) 1.5.dp else 1.dp,
+                color = if (isFocused || !isFilled) baseColor else Color.Transparent,
+                shape = RoundedCornerShape(6.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            text = label,
-            color = if (isFocused) Color.Cyan else Color.White,
-            fontSize = 13.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            text = text,
+            color = textColor,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
         )
     }
 }
@@ -1578,6 +1941,7 @@ fun OmniCatchupOverlay(
     var resolvingProgramSrno by remember { mutableStateOf<Long?>(null) }
 
     val coroutineScope = rememberCoroutineScope()
+    val initialFocusRequester = remember { FocusRequester() }
 
     BackHandler { onClose() }
 
@@ -1588,7 +1952,7 @@ fun OmniCatchupOverlay(
             withContext(Dispatchers.IO) {
                 val channelId = channel.id ?: ""
                 val urlString = "http://127.0.0.1:$localPORT/epg/$channelId/$selectedOffset"
-                val connection = java.net.URL(urlString).openConnection() as java.net.HttpURLConnection
+                val connection = URL(urlString).openConnection() as HttpURLConnection
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
                 val json = connection.inputStream.bufferedReader().use { it.readText() }
@@ -1675,6 +2039,13 @@ fun OmniCatchupOverlay(
         }
     }
 
+    LaunchedEffect(Unit) {
+        delay(150)
+        try {
+            initialFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
+
     val dayOffsets = (0 downTo -7).toList()
     val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
     val todayCal = Calendar.getInstance()
@@ -1685,6 +2056,11 @@ fun OmniCatchupOverlay(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .zIndex(100f)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {}
+            .focusGroup()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -1699,12 +2075,14 @@ fun OmniCatchupOverlay(
                     onClick = onClose,
                     modifier = Modifier
                         .size(36.dp)
+                        .focusRequester(initialFocusRequester)
                         .onFocusChanged { isBackFocused = it.isFocused }
                         .background(if (isBackFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
                         .border(1.dp, if (isBackFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
                 }
+
                 Spacer(modifier = Modifier.width(8.dp))
                 AsyncImage(
                     model = channel.logo ?: "",
@@ -1751,8 +2129,16 @@ fun OmniCatchupOverlay(
                         selected = isSelected,
                         onClick = { selectedOffset = offset },
                         label = { Text(label, fontSize = 12.sp) },
-                        modifier = Modifier.onFocusChanged { isFocused = it.isFocused }
-                            .border(2.dp, if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            borderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            selectedBorderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            borderWidth = if (isFocused) 2.dp else 0.dp,
+                            selectedBorderWidth = if (isFocused) 2.dp else 0.dp
+                        ),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
@@ -1940,7 +2326,7 @@ fun OmniCatchupTile(
 suspend fun resolveCatchupStream(context: Context, renderUrl: String): ResolvedCatchupStream? {
     return withContext(Dispatchers.IO) {
         try {
-            val connection = java.net.URL(renderUrl).openConnection() as java.net.HttpURLConnection
+            val connection = URL(renderUrl).openConnection() as HttpURLConnection
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val html = connection.inputStream.bufferedReader().use { it.readText() }
@@ -2067,7 +2453,7 @@ fun OmniImportCredentialsDialog(
                     BasicTextField(
                         value = importContent,
                         onValueChange = { importContent = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(
+                        textStyle = TextStyle(
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         ),
@@ -2257,7 +2643,7 @@ fun LogViewerDialog(onDismiss: () -> Unit, onCopy: () -> Unit, onClear: () -> Un
                     text = if (logs.isBlank()) "No logs yet." else logs,
                     color = Color.Green,
                     fontSize = 10.sp,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontFamily = FontFamily.Monospace,
                     modifier = Modifier.verticalScroll(scrollState)
                 )
             }
@@ -2322,7 +2708,7 @@ fun OmniServerListItem(
     onSelected: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val scale by androidx.compose.animation.core.animateFloatAsState(if (isFocused) 1.05f else 1.0f, label = "serverScale")
+    val scale by animateFloatAsState(if (isFocused) 1.05f else 1.0f, label = "serverScale")
 
     Box(
         modifier = modifier
@@ -2369,11 +2755,7 @@ fun OmniServerListItem(
     }
 }
 
-/**
- * Display name for whatever is currently set as the startup target. The built-in UIs are
- * pseudo-packages rather than installed apps, so they are matched by package id; anything
- * else is a real IPTV app and keeps its own name.
- */
+
 fun omniDefaultUiLabel(pkg: String?, name: String?): String = when (pkg) {
     "omni" -> "Omni UI"
     "tvzone" -> "New TV UI"
@@ -2382,10 +2764,6 @@ fun omniDefaultUiLabel(pkg: String?, name: String?): String = when (pkg) {
     else -> name ?: "External app"
 }
 
-/**
- * Single-select picker for the UI the app opens into. Writes the same preference the
- * "Select IPTV Player" screen writes, so the two stay in sync.
- */
 @Composable
 fun OmniDefaultUiDialog(
     currentPackage: String?,
@@ -2466,8 +2844,6 @@ fun OmniDefaultUiDialog(
                     }
                 }
 
-                // An external IPTV app matches none of the rows above; say so rather than
-                // showing an empty selection.
                 if (options.none { it.second == selectedPkg }) {
                     Text(
                         text = "Currently: ${omniDefaultUiLabel(currentPackage, null)} (an installed app). Picking an option above replaces it.",
