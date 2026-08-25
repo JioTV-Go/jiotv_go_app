@@ -348,7 +348,7 @@ fun ExoPlayJetScreen(
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
-        //setupCustomPlaybackLogic(exoPlayer, currentUrl)
+        setupCustomPlaybackLogic(exoPlayer, currentUrl)
 
         if (!PlayerCommandBus.isInPipMode) {
             showChannelOverlay = true
@@ -626,8 +626,8 @@ fun ExoPlayJetScreen(
 
                             nextBtn?.setImageResource(R.drawable.ic_skip_next_24)
                             prevBtn?.setImageResource(R.drawable.ic_skip_previous_24)
-                            nextBtn?.visibility = View.GONE
-                            prevBtn?.visibility = View.GONE
+                            nextBtn?.visibility = View.VISIBLE
+                            prevBtn?.visibility = View.VISIBLE
                             nextBtn?.isEnabled = true
                             prevBtn?.isEnabled = true
 
@@ -1270,7 +1270,7 @@ private fun hookExoControllerButtons(playerView: PlayerView, context: Context) {
 @OptIn(UnstableApi::class)
 fun createL3MediaSourceFactory(
     context: Context,
-    licenseUrl: String?,
+    licenseUrl: String,
     userAgent: String = "ExoPlayer",
     headers: Map<String, String> = emptyMap()
 ): DefaultMediaSourceFactory {
@@ -1283,41 +1283,32 @@ fun createL3MediaSourceFactory(
         .setDefaultRequestProperties(headers)
 
     val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+    val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
 
-    val mediaSourceFactory = DefaultMediaSourceFactory(context)
-        .setDataSourceFactory(dataSourceFactory)
-    
-    if (!licenseUrl.isNullOrEmpty()) {
-        val drmCallback = HttpMediaDrmCallback(licenseUrl, httpDataSourceFactory)
-        val drmSessionManager = DefaultDrmSessionManager.Builder()
-            .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
-                FrameworkMediaDrm.newInstance(uuid).apply {
-                    setPropertyString("securityLevel", "L3")
-                }
+    val drmSessionManager = DefaultDrmSessionManager.Builder()
+        .setUuidAndExoMediaDrmProvider(C.WIDEVINE_UUID) { uuid ->
+            FrameworkMediaDrm.newInstance(uuid).apply {
+                setPropertyString("securityLevel", "L3")
             }
-            .build(drmCallback)
+        }
+        .build(drmCallback)
 
-        mediaSourceFactory.setDrmSessionManagerProvider { drmSessionManager }
-    }
-
-    return mediaSourceFactory
+    return DefaultMediaSourceFactory(context)
+        .setDataSourceFactory(dataSourceFactory)
+        .setDrmSessionManagerProvider { drmSessionManager }
 }
 
 @UnstableApi
 fun buildMediaItem(videoUrl: String, keyUrl: String?): MediaItem {
     Log.d(TAG, "Building Stream URL: $videoUrl | DRM Key: $keyUrl")
 
-    val builder = MediaItem.Builder()
+    return MediaItem.Builder()
         .setUri(videoUrl.toUri())
-        .setMimeType(if (keyUrl.isNullOrEmpty()) MimeTypes.APPLICATION_M3U8 else MimeTypes.APPLICATION_MPD)
-
-    if (!keyUrl.isNullOrEmpty()) {
-        builder.setDrmConfiguration(
+        .setMimeType(MimeTypes.APPLICATION_MPD)
+        .setDrmConfiguration(
             MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                .setLicenseUri(keyUrl)
+                .setLicenseUri(keyUrl ?: "")
                 .build()
         )
-    }
-
-    return builder.build()
+        .build()
 }

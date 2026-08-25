@@ -756,40 +756,27 @@ fun DropdownSelection2(
 ) {
     Column {
         Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-
-        OutlinedButton(
-            onClick = { onExpandChange(!expanded) },
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(text = selectedOption)
-        }
-
-        if (expanded) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { onExpandChange(true) },
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(vertical = 4.dp)
-                ) {
-                    options.forEach { option ->
-                        TextButton(
-                            onClick = {
-                                onOptionSelected(option)
-                                onExpandChange(false)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = option,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                Text(text = selectedOption)
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { onExpandChange(false) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(text = option, color = MaterialTheme.colorScheme.onSurface) },
+                        onClick = {
+                            onOptionSelected(option)
+                            onExpandChange(false)
                         }
-                    }
+                    )
                 }
             }
         }
