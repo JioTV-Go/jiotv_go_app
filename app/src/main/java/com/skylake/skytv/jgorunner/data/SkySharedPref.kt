@@ -147,7 +147,7 @@ class SkySharedPref(context: Context) {
     // Data class to store shared preferences keys and values
     data class SharedPrefStructure(
         @SharedPrefKey("serve_local") var serveLocal: Boolean = false,
-        @SharedPrefKey("auto_start_server") var autoStartServer: Boolean = false,
+        @SharedPrefKey("auto_start_server") var autoStartServer: Boolean = true,
         @SharedPrefKey("auto_start_on_boot") var autoStartOnBoot: Boolean = false,
         @SharedPrefKey("auto_start_on_boot_foreground") var autoStartOnBootForeground: Boolean = false,
         @SharedPrefKey("auto_start_iptv") var autoStartIPTV: Boolean = false,
@@ -233,7 +233,8 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("omni_selected_categories") var omniSelectedCategories: String? = "[]",
         @SharedPrefKey("omni_selected_languages") var omniSelectedLanguages: String? = "[]",
         @SharedPrefKey("omni_autostart_app_boot") var omniAutoStartAppOnBoot: Boolean = false,
-        @SharedPrefKey("omni_auto_open_server") var omniAutoOpenServer: String? = "Jio"
+        @SharedPrefKey("omni_auto_open_server") var omniAutoOpenServer: String? = "Jio",
+        @SharedPrefKey("omniGridColumnCount") var omniGridColumnCount: Int = 0,
     )
 
 

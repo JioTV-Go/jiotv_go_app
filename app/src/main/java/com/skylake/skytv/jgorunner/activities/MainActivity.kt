@@ -168,8 +168,7 @@ class MainActivity : FragmentActivity() {
             preferenceManager.savePreferences()
         }
 
-        if (preferenceManager.myPrefs.setupPending) {
-            preferenceManager.myPrefs.setupPending = false
+        if (preferenceManager.myPrefs.iptvLaunchCountdown == 0) {
             preferenceManager.myPrefs.iptvLaunchCountdown = 4
             preferenceManager.myPrefs.enableAutoUpdate = true
             preferenceManager.myPrefs.loginChk = true
@@ -208,7 +207,7 @@ class MainActivity : FragmentActivity() {
 
             countdownJob?.cancel()
             countdownJob = null
-            preferenceManager.myPrefs.autoStartServer = false
+            preferenceManager.myPrefs.autoStartServer = true
             preferenceManager.savePreferences()
             finish()
             return
@@ -533,7 +532,7 @@ class MainActivity : FragmentActivity() {
                         LoginPopup(
                             isVisible = showLoginPopup,
                             title = "Login Required",
-                            text = "Please log in using WebTV to access the server",
+                            text = "Please log in to watch channels",
                             confirmButtonText = "Login",
                             dismissButtonText = "Cancel",
                             onConfirm = {

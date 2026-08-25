@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.twotone.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -78,7 +79,7 @@ fun LoginPopup(
                         Text(confirmButtonText)
                     }
                     Icon(
-                        imageVector = Icons.Filled.Settings,
+                        imageVector = Icons.TwoTone.Public,
                         contentDescription = "Settings",
                         modifier = Modifier
                             .size(24.dp)

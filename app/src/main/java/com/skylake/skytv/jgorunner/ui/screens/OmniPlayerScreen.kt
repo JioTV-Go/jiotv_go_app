@@ -14,6 +14,8 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -89,6 +91,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val OMNI_TAG = "OmniPlayerScreen"
 
@@ -193,7 +196,7 @@ fun OmniPlayerScreen(
             }
             response
         }
-        .build()
+            .build()
     }
 
     var activeList by remember { mutableStateOf(channelList) }
@@ -234,6 +237,9 @@ fun OmniPlayerScreen(
     var hudActivityTick by remember { mutableLongStateOf(0L) }
     var playerError by remember { mutableStateOf<String?>(null) }
 
+    // Player buffering state for loading indicator
+    var isBuffering by remember { mutableStateOf(true) }
+
     var numericBuffer by remember { mutableStateOf("") }
     var showNumericOverlay by remember { mutableStateOf(false) }
     var numericJob by remember { mutableStateOf<Job?>(null) }
@@ -271,13 +277,6 @@ fun OmniPlayerScreen(
     }
 
     // --- Controller / HUD visibility --------------------------------------------------
-    // Two separate overlays, so the D-pad never means two things at once:
-    //   HUD        - info only (logo, channel, clock, OK-opens-controls hint). Nothing in it is
-    //                focusable, so while it is up the remote keeps its shortcut meaning:
-    //                LEFT = channel list, RIGHT = settings, UP/DOWN = zap, OK = controller.
-    //   Controller - the transport bar. While it is open the D-pad only walks its buttons
-    //                and OK presses the focused one; the shortcuts above are suspended.
-
     /** Opens the controller (or keeps it open) and restarts its idle countdown. */
     fun openController() {
         showHud = false
@@ -297,7 +296,6 @@ fun OmniPlayerScreen(
         hudActivityTick++
     }
 
-    // 5s of no key press and no focus move closes the controller.
     LaunchedEffect(showController, controllerActivityTick) {
         if (showController) {
             delay(CONTROLS_IDLE_TIMEOUT_MS)
@@ -312,8 +310,6 @@ fun OmniPlayerScreen(
         }
     }
 
-    // Hand D-pad focus back to the video surface once every overlay is gone, otherwise the
-    // hidden-controller shortcuts stay dead after the controller or a panel closes.
     LaunchedEffect(showController, showChannelPanel, showSettingsPanel) {
         if (isTv && !showController && !showChannelPanel && !showSettingsPanel) {
             delay(80)
@@ -324,52 +320,6 @@ fun OmniPlayerScreen(
     LaunchedEffect(Unit) {
         if (isTv) flashHud() else openController()
     }
-
-    // DRM media builder for Free Jio mechanisms
-    fun buildOmniMediaItem(ch: OmniChannel, forceDrm: Boolean): MediaItem {
-        val licenseUrl = ch.licenseUrl
-        val isMpd = ch.mpdUrl != null || ch.url?.contains(".mpd") == true
-
-        val builder = MediaItem.Builder()
-
-        if (!licenseUrl.isNullOrBlank()) {
-            // Use provided MPD url and license key directly
-            builder.setUri(ch.mpdUrl ?: ch.url ?: "")
-            builder.setDrmConfiguration(
-                MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                    .setLicenseUri(licenseUrl)
-                    .apply {
-                        ch.headers?.let { setLicenseRequestHeaders(it) }
-                    }
-                    .build()
-            )
-            builder.setMimeType(MimeTypes.APPLICATION_MPD)
-        } else {
-            // No explicit license - select URL based on forceDrm flag
-            val isLocalChannel = (ch.mpdUrl ?: ch.m3u8Url ?: ch.url ?: "").let {
-                it.contains("127.0.0.1") || it.contains("localhost")
-            }
-            if (forceDrm && ch.mpdUrl != null) {
-                builder.setUri(ch.mpdUrl!!)
-                // Derive key URL for local Jio server
-                val channelId = ch.mpdUrl!!.substringAfterLast("/").substringBefore(".")
-                val base = ch.mpdUrl!!.substringBefore("/live/mpd/")
-                val derivedKey = "$base/live/key/$channelId"
-                builder.setDrmConfiguration(
-                    MediaItem.DrmConfiguration.Builder(C.WIDEVINE_UUID)
-                        .setLicenseUri(derivedKey)
-                        .build()
-                )
-                builder.setMimeType(MimeTypes.APPLICATION_MPD)
-            } else {
-                val hlsUrl = ch.m3u8Url ?: ch.url ?: ""
-                builder.setUri(hlsUrl)
-                builder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-        }
-        return builder.build()
-    }
-
 
     var currentResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     val trackSelector = remember {
@@ -384,10 +334,10 @@ fun OmniPlayerScreen(
     val exoPlayer = remember {
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                2000,  // minBufferMs (Fast zapping start)
-                15000, // maxBufferMs
-                800,   // bufferForPlaybackMs
-                1200   // bufferForPlaybackAfterRebufferMs
+                2000,
+                15000,
+                800,
+                1200
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -398,12 +348,13 @@ fun OmniPlayerScreen(
             .apply {
                 addListener(object : Player.Listener {
                     override fun onPlayerError(error: PlaybackException) {
+                        isBuffering = false
                         Log.e(OMNI_TAG, "ExoPlayer error: ${error.message}")
                         com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Playback error (${error.errorCodeName} - ${error.message}) for channel: ${activeChannel?.name}", error)
 
                         val catchupWebUrl = activeChannel?.headers?.get("catchup_web_url")
                         val isCatchupStream = activeChannel?.name?.contains("[Catchup]", ignoreCase = true) == true &&
-                                              !catchupWebUrl.isNullOrBlank()
+                                !catchupWebUrl.isNullOrBlank()
 
                         if (isCatchupStream) {
                             catchupRetryCount++
@@ -444,6 +395,7 @@ fun OmniPlayerScreen(
                     }
 
                     override fun onPlaybackStateChanged(state: Int) {
+                        isBuffering = (state == Player.STATE_BUFFERING)
                         if (state == Player.STATE_READY) {
                             playerError = null
                             com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Playback STATE_READY for channel: ${activeChannel?.name}")
@@ -457,6 +409,7 @@ fun OmniPlayerScreen(
         val ch = activeList.getOrNull(currentIndex) ?: return@LaunchedEffect
         activeChannel = ch
         playerError = null
+        isBuffering = true
         try {
             val normalizedHeaders = mutableMapOf<String, String>()
             normalizedHeaders["Accept"] = "*/*"
@@ -575,6 +528,7 @@ fun OmniPlayerScreen(
             // New channel is live: flash the info HUD on TV, surface the controls on touch.
             if (isTv) flashHud() else openController()
         } catch (e: Exception) {
+            isBuffering = false
             Log.e(OMNI_TAG, "Failed to prepare playback", e)
             com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to prepare playback for ${activeChannel?.name}", e)
             playerError = e.message ?: "Prepare Failed"
@@ -597,7 +551,6 @@ fun OmniPlayerScreen(
         )
     }
 
-    // Audio & Subtitles selector logic
     fun getAudioTrackOptions(player: ExoPlayer): List<Pair<String, String>> {
         val options = mutableListOf<Pair<String, String>>()
         try {
@@ -616,7 +569,6 @@ fun OmniPlayerScreen(
         return options.distinctBy { it.first }
     }
 
-    // Subtitle tracks options
     fun getSubtitleTrackOptions(player: ExoPlayer): List<Pair<String, String>> {
         val options = mutableListOf<Pair<String, String>>()
         try {
@@ -636,7 +588,6 @@ fun OmniPlayerScreen(
     }
 
     val favoriteStore = remember { OmniFavoritesStore(preferenceManager) }
-    // Mobile Swipe Gestures
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager }
     val maxVolume = remember { audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() }
     var swipeVolumeValue by remember { mutableFloatStateOf(0f) }
@@ -645,7 +596,7 @@ fun OmniPlayerScreen(
     var showBrightnessIndicator by remember { mutableStateOf(false) }
     var dragSideIsLeft by remember { mutableStateOf(false) }
     var gestureIndicatorJob by remember { mutableStateOf<Job?>(null) }
-    val enableSwipeGestures = true
+    val enableSwipeGestures = preferenceManager.myPrefs.omniEnableSwipeGestures
 
     val swipeModifier = if (isTv || !enableSwipeGestures) Modifier else Modifier.pointerInput(Unit) {
         detectVerticalDragGestures(
@@ -704,7 +655,6 @@ fun OmniPlayerScreen(
         }
     }
 
-    // Picture in Picture controls command mapping
     DisposableEffect(activeList, currentIndex, exoPlayer) {
         com.skylake.skytv.jgorunner.services.player.PlayerCommandBus.setHandlers(
             playPause = {
@@ -761,7 +711,11 @@ fun OmniPlayerScreen(
                     }
                 },
                 update = { view ->
-                    view.resizeMode = currentResizeMode
+                    if (view.resizeMode != currentResizeMode) {
+                        view.resizeMode = currentResizeMode
+                        view.requestLayout()
+                        view.invalidate()
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -773,372 +727,444 @@ fun OmniPlayerScreen(
                 .background(Color.Black)
                 .then(swipeModifier)
                 .pointerInput(isMovieOrVod) {
-                detectTapGestures(
-                    onTap = {
-                        if (showController) {
-                            showController = false
-                            showChannelPanel = false
-                            showSettingsPanel = false
-                        } else {
-                            openController()
-                        }
-                    },
-                    onDoubleTap = { offset ->
-                        if (!isMovieOrVod) return@detectTapGestures
-                        val screenWidth = size.width
-                        val doubleTapLeft = offset.x < (screenWidth / 2)
-                        val seekDelta = if (doubleTapLeft) -10000L else 10000L
-                        
-                        seekIndicatorForward = !doubleTapLeft
-                        seekIndicatorSeconds = 10
-                        showSeekIndicator = true
-                        
-                        seekIndicatorJob?.cancel()
-                        seekIndicatorJob = scope.launch {
-                            delay(1200)
-                            showSeekIndicator = false
-                        }
-
-                        val targetPos = (exoPlayer.currentPosition + seekDelta).coerceIn(0L, exoPlayer.duration)
-                        exoPlayer.seekTo(targetPos)
-                    }
-                )
-            }
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    // Controller open -> the D-pad belongs to its buttons. Swallow nothing;
-                    // just restart the idle countdown and let the focused child handle it.
-                    // This is what stops LEFT/RIGHT from opening panels and UP/DOWN from
-                    // zapping while the user is walking the transport bar.
-                    if (showController) {
-                        markControllerActivity()
-                        return@onPreviewKeyEvent false
-                    }
-
-                    val panelOpen = showChannelPanel || showSettingsPanel
-                    when (event.key) {
-                        Key.DirectionLeft -> {
-                            if (!panelOpen) {
-                                showHud = false
-                                showChannelPanel = true
-                                return@onPreviewKeyEvent true
-                            }
-                        }
-                        Key.DirectionRight -> {
-                            if (!panelOpen) {
-                                showHud = false
-                                showSettingsPanel = true
-                                return@onPreviewKeyEvent true
-                            }
-                        }
-                        Key.DirectionUp -> {
-                            if (!panelOpen && activeList.isNotEmpty()) {
-                                currentIndex = (currentIndex + 1) % activeList.size
-                                flashHud()
-                                return@onPreviewKeyEvent true
-                            }
-                        }
-                        Key.DirectionDown -> {
-                            if (!panelOpen && activeList.isNotEmpty()) {
-                                currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
-                                flashHud()
-                                return@onPreviewKeyEvent true
-                            }
-                        }
-                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                            if (!panelOpen) {
+                    detectTapGestures(
+                        onTap = {
+                            if (showController) {
+                                showController = false
+                                showChannelPanel = false
+                                showSettingsPanel = false
+                            } else {
                                 openController()
-                                return@onPreviewKeyEvent true
+                            }
+                        },
+                        onDoubleTap = { offset ->
+                            if (!isMovieOrVod) return@detectTapGestures
+                            val screenWidth = size.width
+                            val doubleTapLeft = offset.x < (screenWidth / 2)
+                            val seekDelta = if (doubleTapLeft) -10000L else 10000L
+
+                            seekIndicatorForward = !doubleTapLeft
+                            seekIndicatorSeconds = 10
+                            showSeekIndicator = true
+
+                            seekIndicatorJob?.cancel()
+                            seekIndicatorJob = scope.launch {
+                                delay(1200)
+                                showSeekIndicator = false
+                            }
+
+                            val targetPos = (exoPlayer.currentPosition + seekDelta).coerceIn(0L, exoPlayer.duration)
+                            exoPlayer.seekTo(targetPos)
+                        }
+                    )
+                }
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        val panelOpen = showChannelPanel || showSettingsPanel
+                        val seekable = try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false }
+                        val hasSeekBar = isMovieOrVod && seekable
+
+                        when (event.key) {
+                            Key.DirectionUp -> {
+                                if (panelOpen) return@onPreviewKeyEvent false
+                                if (showController && hasSeekBar) {
+                                    markControllerActivity()
+                                    return@onPreviewKeyEvent false
+                                }
+                                if (activeList.isNotEmpty()) {
+                                    currentIndex = (currentIndex + 1) % activeList.size
+                                    if (showController) markControllerActivity() else flashHud()
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                            Key.DirectionDown -> {
+                                if (panelOpen) return@onPreviewKeyEvent false
+                                if (showController && hasSeekBar) {
+                                    markControllerActivity()
+                                    return@onPreviewKeyEvent false
+                                }
+                                if (activeList.isNotEmpty()) {
+                                    currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                                    if (showController) markControllerActivity() else flashHud()
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                            Key.DirectionLeft -> {
+                                if (isMovieOrVod) {
+                                    if (panelOpen) return@onPreviewKeyEvent false
+                                    // VOD/Catchup: Scrub backward 10s
+                                    seekIndicatorForward = false
+                                    seekIndicatorSeconds = 10
+                                    showSeekIndicator = true
+
+                                    seekIndicatorJob?.cancel()
+                                    seekIndicatorJob = scope.launch {
+                                        delay(1200)
+                                        showSeekIndicator = false
+                                    }
+
+                                    val targetPos = (exoPlayer.currentPosition - 10000L).coerceIn(0L, exoPlayer.duration)
+                                    exoPlayer.seekTo(targetPos)
+                                    openController()
+                                    return@onPreviewKeyEvent true
+                                } else {
+                                    // LIVE TV LOGIC: Toggle Panels on Left
+                                    if (showController) {
+                                        markControllerActivity()
+                                        return@onPreviewKeyEvent false
+                                    }
+
+                                    if (showSettingsPanel) {
+                                        showSettingsPanel = false
+                                    } else if (showChannelPanel) {
+                                        showChannelPanel = false
+                                    } else {
+                                        // Open left panel, hide others
+                                        showChannelPanel = true
+                                        showController = false
+                                        showHud = false
+                                    }
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                            Key.DirectionRight -> {
+                                if (isMovieOrVod) {
+                                    if (panelOpen) return@onPreviewKeyEvent false
+                                    seekIndicatorForward = true
+                                    seekIndicatorSeconds = 10
+                                    showSeekIndicator = true
+
+                                    seekIndicatorJob?.cancel()
+                                    seekIndicatorJob = scope.launch {
+                                        delay(1200)
+                                        showSeekIndicator = false
+                                    }
+
+                                    val targetPos = (exoPlayer.currentPosition + 10000L).coerceIn(0L, exoPlayer.duration)
+                                    exoPlayer.seekTo(targetPos)
+                                    openController()
+                                    return@onPreviewKeyEvent true
+                                } else {
+                                    if (showController) {
+                                        markControllerActivity()
+                                        return@onPreviewKeyEvent false
+                                    }
+
+                                    if (showChannelPanel) {
+                                        showChannelPanel = false
+                                    } else if (showSettingsPanel) {
+                                        showSettingsPanel = false
+                                    } else {
+                                        showSettingsPanel = true
+                                        showController = false
+                                        showHud = false
+                                    }
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                                if (panelOpen) return@onPreviewKeyEvent false
+                                if (showController) {
+                                    markControllerActivity()
+                                    return@onPreviewKeyEvent false
+                                } else {
+                                    openController()
+                                    return@onPreviewKeyEvent true
+                                }
                             }
                         }
-                    }
 
-                    val digit = when (event.key) {
-                        Key.Zero -> 0; Key.One -> 1; Key.Two -> 2; Key.Three -> 3; Key.Four -> 4
-                        Key.Five -> 5; Key.Six -> 6; Key.Seven -> 7; Key.Eight -> 8; Key.Nine -> 9
-                        else -> null
-                    }
-                    if (digit != null) {
-                        numericBuffer += digit.toString()
-                        showNumericOverlay = true
-                        numericJob?.cancel()
-                        numericJob = scope.launch {
-                            delay(1500)
-                            val num = numericBuffer.toIntOrNull()
-                            if (num != null && num in 1..activeList.size) {
-                                currentIndex = num - 1
-                                flashHud()
-                            }
-                            numericBuffer = ""
-                            showNumericOverlay = false
+                        if (panelOpen) return@onPreviewKeyEvent false
+
+                        val digit = when (event.key) {
+                            Key.Zero -> 0; Key.One -> 1; Key.Two -> 2; Key.Three -> 3; Key.Four -> 4
+                            Key.Five -> 5; Key.Six -> 6; Key.Seven -> 7; Key.Eight -> 8; Key.Nine -> 9
+                            else -> null
                         }
-                        return@onPreviewKeyEvent true
+                        if (digit != null) {
+                            numericBuffer += digit.toString()
+                            showNumericOverlay = true
+                            numericJob?.cancel()
+                            numericJob = scope.launch {
+                                delay(1500.milliseconds)
+                                val num = numericBuffer.toIntOrNull()
+                                if (num != null && num in 1..activeList.size) {
+                                    currentIndex = num - 1
+                                    flashHud()
+                                }
+                                numericBuffer = ""
+                                showNumericOverlay = false
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                    false
+                }
+                .focusRequester(rootFocusRequester)
+                .focusable()
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                        resizeMode = currentResizeMode
+                        keepScreenOn = true
+                    }
+                },
+                update = { view ->
+                    view.resizeMode = currentResizeMode
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            if (isBuffering && playerError == null) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = Color.Cyan,
+                        modifier = Modifier.size(64.dp),
+                        strokeWidth = 5.dp
+                    )
+                }
+            }
+
+            if (showVolumeIndicator) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = if (swipeVolumeValue == 0f) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                            contentDescription = null,
+                            tint = Color.Cyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = "Volume: ${(swipeVolumeValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                false
             }
-            .focusRequester(rootFocusRequester)
-            .focusable()
-    ) {
-        // Video View
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = currentResizeMode
-                    keepScreenOn = true
-                }
-            },
-            update = { view ->
-                view.resizeMode = currentResizeMode
-            },
-            modifier = Modifier.fillMaxSize()
-        )
 
-        // Volume / Brightness overlay indicators
-        if (showVolumeIndicator) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = if (swipeVolumeValue == 0f) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
-                        contentDescription = null,
-                        tint = Color.Cyan,
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Volume: ${(swipeVolumeValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            if (showBrightnessIndicator) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Brightness5,
+                            contentDescription = null,
+                            tint = Color.Cyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = "Brightness: ${(swipeBrightnessValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
-        }
 
-        if (showBrightnessIndicator) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(12.dp))
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Brightness5,
-                        contentDescription = null,
-                        tint = Color.Cyan,
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Brightness: ${(swipeBrightnessValue * 100).toInt()}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            if (showSeekIndicator) {
+                Box(
+                    modifier = Modifier
+                        .align(if (seekIndicatorForward) Alignment.CenterEnd else Alignment.CenterStart)
+                        .padding(horizontal = 48.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = if (seekIndicatorForward) Icons.Default.FastForward else Icons.Default.FastRewind,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (seekIndicatorForward) "+${seekIndicatorSeconds}s" else "-${seekIndicatorSeconds}s",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
-        }
 
-        // Fast Forward / Rewind seek indicators
-        if (showSeekIndicator) {
-            Box(
-                modifier = Modifier
-                    .align(if (seekIndicatorForward) Alignment.CenterEnd else Alignment.CenterStart)
-                    .padding(horizontal = 48.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = if (seekIndicatorForward) Icons.Default.FastForward else Icons.Default.FastRewind,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(34.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
+            if (showNumericOverlay) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 32.dp, vertical = 24.dp)
+                ) {
                     Text(
-                        text = if (seekIndicatorForward) "+${seekIndicatorSeconds}s" else "-${seekIndicatorSeconds}s",
-                        color = Color.White,
-                        fontSize = 13.sp,
+                        text = numericBuffer,
+                        color = Color.Cyan,
+                        fontSize = 44.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
-        }
 
-        // Channel numeric overlay
-        if (showNumericOverlay) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
+            playerError?.let { err ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Playback Failed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(err, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(onClick = {
+                            playerError = null
+                            playbackTrigger++
+                        }) {
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showHud && !showController && !showChannelPanel && !showSettingsPanel,
+                enter = fadeIn(),
+                exit = fadeOut()
             ) {
-                Text(
-                    text = numericBuffer,
-                    color = Color.Cyan,
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.Bold
+                OmniPlayerHud(channel = activeChannel, currentIndex = currentIndex)
+            }
+
+            AnimatedVisibility(
+                visible = showController && !showChannelPanel && !showSettingsPanel,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                OmniPlayerOverlay(
+                    channel = activeChannel,
+                    currentIndex = currentIndex,
+                    isTv = isTv,
+                    focusRequester = overlayFocusRequester,
+                    seekBarFocusRequester = seekBarFocusRequester,
+                    autoFocusSeekBar = isMovieOrVod && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
+                    exoPlayer = exoPlayer,
+                    onUserInteraction = { markControllerActivity() },
+                    onMenuClick = {
+                        showController = false
+                        showSettingsPanel = true
+                    },
+                    onChannelsClick = {
+                        showController = false
+                        showChannelPanel = true
+                    },
+                    onRefreshClick = {
+                        playbackTrigger++
+                    },
+                    onPrevClick = {
+                        if (activeList.isNotEmpty()) currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                    },
+                    onNextClick = {
+                        if (activeList.isNotEmpty()) currentIndex = (currentIndex + 1) % activeList.size
+                    },
+                    onDismiss = {
+                        showController = false
+                        showChannelPanel = false
+                        showSettingsPanel = false
+                    }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showChannelPanel,
+                enter = slideInHorizontally { -it },
+                exit = slideOutHorizontally { -it },
+                modifier = Modifier.align(Alignment.CenterStart)
+            ) {
+                OmniSidePanel(
+                    channels = activeList,
+                    selectedIndex = currentIndex,
+                    focusRequester = sidePanelFocusRequester,
+                    onChannelSelected = { index ->
+                        currentIndex = index
+                        showChannelPanel = false
+                        flashHud()
+                    },
+                    onClose = { showChannelPanel = false }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showSettingsPanel,
+                enter = slideInHorizontally { it },
+                exit = slideOutHorizontally { it },
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                val audioTrackPairs = getAudioTrackOptions(exoPlayer)
+                val audioLabels = audioTrackPairs.map { it.first }
+                val resolvedAudioLabel = selectedAudioLabel ?: audioLabels.firstOrNull() ?: "Default"
+
+                val subtitleTrackPairs = getSubtitleTrackOptions(exoPlayer)
+                val subtitleLabels = subtitleTrackPairs.map { it.first }
+
+                OmniSettingsPanel(
+                    preferenceManager = preferenceManager,
+                    focusRequester = settingsPanelFocusRequester,
+                    currentResizeMode = currentResizeMode,
+                    onResizeModeChange = { currentResizeMode = it },
+                    currentChannel = activeChannel,
+                    serverUrl = serverUrl,
+                    onClose = { showSettingsPanel = false },
+                    currentSpeed = currentPlaybackSpeed,
+                    onSpeedSelected = { currentPlaybackSpeed = it },
+                    audioLabels = audioLabels,
+                    currentAudio = resolvedAudioLabel,
+                    onAudioSelected = { label ->
+                        try {
+                            val lang = audioTrackPairs.firstOrNull { it.first == label }?.second
+                            val params = exoPlayer.trackSelectionParameters.buildUpon()
+                            if (!lang.isNullOrBlank()) {
+                                params.setPreferredAudioLanguage(lang)
+                            }
+                            exoPlayer.trackSelectionParameters = params.build()
+                            selectedAudioLabel = label
+                        } catch (e: Exception) {
+                            LogCollector.log("Audio select failed: ${e.message}")
+                        }
+                    },
+                    subtitleLabels = subtitleLabels,
+                    currentSubtitle = selectedSubtitleLabel,
+                    onSubtitleSelected = { label ->
+                        try {
+                            val params = exoPlayer.trackSelectionParameters.buildUpon()
+                            if (label == "Off") {
+                                params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            } else {
+                                params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                val lang = subtitleTrackPairs.firstOrNull { it.first == label }?.second
+                                if (!lang.isNullOrBlank()) params.setPreferredTextLanguage(lang)
+                            }
+                            exoPlayer.trackSelectionParameters = params.build()
+                            selectedSubtitleLabel = label
+                        } catch (e: Exception) {
+                            LogCollector.log("Subtitle select failed: ${e.message}")
+                        }
+                    }
                 )
             }
         }
-
-        // Playback error dialog overlay
-        playerError?.let { err ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Error, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Playback Failed", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(err, color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = {
-                        playerError = null
-                        playbackTrigger++
-                    }) {
-                        Text("Retry")
-                    }
-                }
-            }
-        }
-
-        // Info-only HUD: keeps the remote shortcuts alive and advertises that OK opens
-        // the real controller.
-        AnimatedVisibility(
-            visible = showHud && !showController && !showChannelPanel && !showSettingsPanel,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            OmniPlayerHud(channel = activeChannel, currentIndex = currentIndex)
-        }
-
-        // Main controls overlay
-        AnimatedVisibility(
-            visible = showController && !showChannelPanel && !showSettingsPanel,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            OmniPlayerOverlay(
-                channel = activeChannel,
-                currentIndex = currentIndex,
-                isTv = isTv,
-                focusRequester = overlayFocusRequester,
-                seekBarFocusRequester = seekBarFocusRequester,
-                autoFocusSeekBar = isMovieOrVod && try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false },
-                exoPlayer = exoPlayer,
-                onUserInteraction = { markControllerActivity() },
-                onMenuClick = {
-                    showController = false
-                    showSettingsPanel = true
-                },
-                onChannelsClick = {
-                    showController = false
-                    showChannelPanel = true
-                },
-                onRefreshClick = {
-                    playbackTrigger++
-                },
-                onPrevClick = {
-                    if (activeList.isNotEmpty()) currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
-                },
-                onNextClick = {
-                    if (activeList.isNotEmpty()) currentIndex = (currentIndex + 1) % activeList.size
-                },
-                onDismiss = {
-                    showController = false
-                    showChannelPanel = false
-                    showSettingsPanel = false
-                }
-            )
-        }
-
-        // Sliding Side Channel Drawer
-        AnimatedVisibility(
-            visible = showChannelPanel,
-            enter = slideInHorizontally { -it },
-            exit = slideOutHorizontally { -it },
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            OmniSidePanel(
-                channels = activeList,
-                selectedIndex = currentIndex,
-                focusRequester = sidePanelFocusRequester,
-                onChannelSelected = { index ->
-                    currentIndex = index
-                    showChannelPanel = false
-                    flashHud()
-                },
-                onClose = { showChannelPanel = false }
-            )
-        }
-
-        // Sliding Settings Drawer
-        AnimatedVisibility(
-            visible = showSettingsPanel,
-            enter = slideInHorizontally { it },
-            exit = slideOutHorizontally { it },
-            modifier = Modifier.align(Alignment.CenterEnd)
-        ) {
-            val audioTrackPairs = getAudioTrackOptions(exoPlayer)
-            val audioLabels = audioTrackPairs.map { it.first }
-            val resolvedAudioLabel = selectedAudioLabel ?: audioLabels.firstOrNull() ?: "Default"
-
-            val subtitleTrackPairs = getSubtitleTrackOptions(exoPlayer)
-            val subtitleLabels = subtitleTrackPairs.map { it.first }
-
-            OmniSettingsPanel(
-                preferenceManager = preferenceManager,
-                focusRequester = settingsPanelFocusRequester,
-                currentResizeMode = currentResizeMode,
-                onResizeModeChange = { currentResizeMode = it },
-                currentChannel = activeChannel,
-                serverUrl = serverUrl,
-                onClose = { showSettingsPanel = false },
-                currentSpeed = currentPlaybackSpeed,
-                onSpeedSelected = { currentPlaybackSpeed = it },
-                audioLabels = audioLabels,
-                currentAudio = resolvedAudioLabel,
-                onAudioSelected = { label ->
-                    try {
-                        val lang = audioTrackPairs.firstOrNull { it.first == label }?.second
-                        val params = exoPlayer.trackSelectionParameters.buildUpon()
-                        if (!lang.isNullOrBlank()) {
-                            params.setPreferredAudioLanguage(lang)
-                        }
-                        exoPlayer.trackSelectionParameters = params.build()
-                        selectedAudioLabel = label
-                    } catch (e: Exception) {
-                        LogCollector.log("Audio select failed: ${e.message}")
-                    }
-                },
-                subtitleLabels = subtitleLabels,
-                currentSubtitle = selectedSubtitleLabel,
-                onSubtitleSelected = { label ->
-                    try {
-                        val params = exoPlayer.trackSelectionParameters.buildUpon()
-                        if (label == "Off") {
-                            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                        } else {
-                            params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                            val lang = subtitleTrackPairs.firstOrNull { it.first == label }?.second
-                            if (!lang.isNullOrBlank()) params.setPreferredTextLanguage(lang)
-                        }
-                        exoPlayer.trackSelectionParameters = params.build()
-                        selectedSubtitleLabel = label
-                    } catch (e: Exception) {
-                        LogCollector.log("Subtitle select failed: ${e.message}")
-                    }
-                }
-            )
-        }
-    }
     }
 }
 
@@ -1173,8 +1199,6 @@ fun OmniPlayerOverlay(
         }
     }
 
-    // TV: focus lands on the seekbar for movies/VOD, on play/pause everywhere else.
-    // (The seekbar only exists once a duration is known, hence the fallback.)
     LaunchedEffect(autoFocusSeekBar, isTv) {
         if (!isTv) return@LaunchedEffect
         delay(80)
@@ -1194,8 +1218,6 @@ fun OmniPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // Tap-anywhere-to-hide is a touch affordance only: on TV a clickable parent
-            // would join the focus order as an invisible D-pad target.
             .then(
                 if (isTv) Modifier else Modifier.clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -1207,7 +1229,6 @@ fun OmniPlayerOverlay(
             )
             .padding(24.dp)
     ) {
-        // Time Card (Top End)
         Card(
             modifier = Modifier.align(Alignment.TopEnd),
             colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.4f)),
@@ -1215,28 +1236,26 @@ fun OmniPlayerOverlay(
         ) {
             var time by remember { mutableStateOf("") }
             LaunchedEffect(Unit) {
+                val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
                 while (true) {
-                    val cal = Calendar.getInstance()
-                    time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-                    delay(30000)
+                    time = sdf.format(java.util.Date())
+                    delay(1000.milliseconds)
                 }
             }
             Text(
                 text = time,
                 color = Color.White,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
+                fontSize = 24.sp
             )
         }
 
-        // Bottom Column containing details, seekbar, and buttons (Bottom Start)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
         ) {
-            // Channel Info Row
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = channel?.logo,
@@ -1267,7 +1286,6 @@ fun OmniPlayerOverlay(
             }
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Seek bar if seekable (catchup show)
             val seekable = try { exoPlayer.isCurrentMediaItemSeekable } catch (_: Exception) { false }
             if (seekable && duration > 0) {
                 var isDragging by remember { mutableStateOf(false) }
@@ -1357,7 +1375,7 @@ fun OmniPlayerOverlay(
                                 color = if (isFocused) Color(0xFF5A5A5A) else Color(0xFF3A3A3A),
                                 start = androidx.compose.ui.geometry.Offset(trackStart, trackY),
                                 end = androidx.compose.ui.geometry.Offset(trackEnd, trackY),
-                                strokeWidth = if (isFocused) 3.5.dp.toPx() else 2.5.dp.toPx(),
+                                strokeWidth = if (isFocused) 4.5.dp.toPx() else 2.5.dp.toPx(),
                                 cap = StrokeCap.Round
                             )
 
@@ -1365,7 +1383,7 @@ fun OmniPlayerOverlay(
                                 color = Color(0xFF00E5FF),
                                 start = androidx.compose.ui.geometry.Offset(trackStart, trackY),
                                 end = androidx.compose.ui.geometry.Offset(thumbX, trackY),
-                                strokeWidth = if (isFocused) 3.5.dp.toPx() else 2.5.dp.toPx(),
+                                strokeWidth = if (isFocused) 4.5.dp.toPx() else 2.5.dp.toPx(),
                                 cap = StrokeCap.Round
                             )
 
@@ -1388,7 +1406,6 @@ fun OmniPlayerOverlay(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Transport Control Buttons Row
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OverlayButton(
                     onClick = {
@@ -1460,11 +1477,6 @@ fun OmniPlayerOverlay(
     }
 }
 
-/**
- * Info-only channel HUD, shown on TV while the controller is hidden. Nothing here is
- * focusable, so the remote keeps its shortcut meaning; the hint tells the user that OK
- * swaps this for the real controller.
- */
 @Composable
 fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
     var time by remember { mutableStateOf("") }
@@ -1567,10 +1579,18 @@ fun OverlayButton(
     onFocused: () -> Unit = {}
 ) {
     var isFocused by remember { mutableStateOf(false) }
+
+    // Scale animation to pop-out when focused via remote
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.15f else 1.0f,
+        animationSpec = tween(150),
+        label = "button_scale"
+    )
+
     val rotationAngle = remember { mutableFloatStateOf(0f) }
-    val animatedRotation by androidx.compose.animation.core.animateFloatAsState(
+    val animatedRotation by animateFloatAsState(
         targetValue = rotationAngle.value,
-        animationSpec = androidx.compose.animation.core.tween(durationMillis = 800, easing = androidx.compose.animation.core.LinearEasing),
+        animationSpec = tween(durationMillis = 800, easing = androidx.compose.animation.core.LinearEasing),
         label = "refreshRotation"
     )
 
@@ -1582,17 +1602,22 @@ fun OverlayButton(
             onClick()
         },
         modifier = modifier
+            .scale(scale)
             .onFocusChanged { state ->
-                // Touch devices get no focus ring, and a focus move on TV counts as activity.
                 val focused = state.isFocused && focusEnabled
                 if (focused && !isFocused) onFocused()
                 isFocused = focused
             }
             .background(
-                if (isFocused) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.5f),
-                RoundedCornerShape(50)
+                color = if (isFocused) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.5f),
+                shape = CircleShape
             )
-            .border(if (isFocused) 2.dp else 0.dp, Color.Cyan, RoundedCornerShape(50))
+            .border(
+                width = 2.dp,
+                color = if (isFocused) Color.Cyan else Color.Transparent,
+                shape = CircleShape
+            )
+            .clip(CircleShape)
     ) {
         Icon(
             icon,
@@ -1614,50 +1639,156 @@ fun OmniSidePanel(
     onClose: () -> Unit
 ) {
     val listState = rememberLazyListState()
+
     LaunchedEffect(selectedIndex) {
         if (selectedIndex >= 0) listState.scrollToItem(selectedIndex)
     }
 
-    // Requested here rather than by the caller: the row does not exist until the drawer
-    // has been composed and scrolled to the selected channel.
     LaunchedEffect(Unit) {
-        delay(150)
+        delay(150.milliseconds)
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(modifier = Modifier.fillMaxHeight().width(280.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
-        Column {
-            Text("Channels", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
-            LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(300.dp)
+            .clip(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0xFF0F0F0F).copy(alpha = 0.98f),
+                        Color(0xFF1A1A1A).copy(alpha = 0.95f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Color.Cyan.copy(alpha = 0.15f),
+                RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
+            )
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, end = 20.dp, top = 24.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Tv,
+                    contentDescription = "Channels",
+                    tint = Color.Cyan,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Live Channels",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
+
+            HorizontalDivider(
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 4.dp),
+                color = Color.Cyan.copy(alpha = 0.2f),
+                thickness = 1.dp
+            )
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 itemsIndexed(channels) { index, channel ->
                     val isSelected = index == selectedIndex
                     var isFocused by remember { mutableStateOf(false) }
 
+                    val scale by animateFloatAsState(
+                        targetValue = if (isFocused) 1.02f else 1.0f,
+                        animationSpec = tween(200),
+                        label = "channel_scale"
+                    )
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(if (index == selectedIndex) Modifier.focusRequester(focusRequester) else Modifier)
-                            .clip(RoundedCornerShape(8.dp))
+                            .then(if (isSelected) Modifier.focusRequester(focusRequester) else Modifier)
+                            .scale(scale)
+                            .clip(RoundedCornerShape(10.dp))
                             .onFocusChanged { isFocused = it.isFocused }
                             .background(
-                                if (isFocused) Color.Cyan.copy(alpha = 0.3f)
-                                else if (isSelected) Color.Cyan.copy(alpha = 0.1f)
-                                else Color.Transparent
+                                when {
+                                    isFocused -> Color.Cyan.copy(alpha = 0.25f)
+                                    isSelected -> Color.Cyan.copy(alpha = 0.12f)
+                                    else -> Color.Transparent
+                                }
                             )
-                            .border(if (isFocused) 2.dp else 0.dp, Color.Cyan, RoundedCornerShape(8.dp))
+                            .border(
+                                width = 2.dp,
+                                color = if (isFocused) Color.Cyan else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp)
+                            )
                             .clickable { onChannelSelected(index) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)))
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color.White.copy(alpha = 0.9f))
+                                .padding(3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = channel.logo,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = channel.name ?: "",
-                            color = if (isFocused || isSelected) Color.Cyan else Color.White,
-                            maxLines = 1,
-                            fontSize = 12.sp,
-                            fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = channel.name ?: "Unknown Channel",
+                                color = if (isFocused || isSelected) Color.Cyan else Color.White,
+                                maxLines = 1,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (!channel.group.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(1.dp))
+                                Text(
+                                    text = channel.group,
+                                    color = if (isFocused || isSelected) Color.Cyan.copy(alpha = 0.75f) else Color.Gray,
+                                    maxLines = 1,
+                                    fontSize = 10.sp,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (isSelected) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Cyan)
+                            )
+                        }
                     }
                 }
             }
@@ -1708,7 +1839,6 @@ fun OmniSettingsPanel(
     val initialQualityLabel =
         qualityOptions.firstOrNull { it.second == currentMaxHeight }?.first ?: "Auto"
 
-    // Playback speed options
     val speedOptions = listOf(
         0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f
     )
@@ -1727,11 +1857,63 @@ fun OmniSettingsPanel(
         runCatching { focusRequester.requestFocus() }
     }
 
-    Box(modifier = Modifier.fillMaxHeight().width(250.dp).background(Color.Black.copy(alpha = 0.85f)).padding(10.dp)) {
-        Column {
-            Text("Player Settings", color = Color.Cyan, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(300.dp)
+            .clip(RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0xFF1A1A1A).copy(alpha = 0.95f),
+                        Color(0xFF0F0F0F).copy(alpha = 0.98f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Color.Cyan.copy(alpha = 0.15f),
+                RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
+            )
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, end = 20.dp, top = 28.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = Color.Cyan,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Player Settings",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
 
-            LazyColumn(modifier = Modifier.weight(1f)) {
+            HorizontalDivider(
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 8.dp),
+                color = Color.Cyan.copy(alpha = 0.2f),
+                thickness = 1.dp
+            )
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 item {
                     val currentLabel = modes.find { it.second == currentResizeMode }?.first ?: "Fit"
                     SettingsActionItemCompact("Aspect Ratio: $currentLabel", Icons.Default.AspectRatio, modifier = Modifier.focusRequester(focusRequester)) {
@@ -1750,7 +1932,6 @@ fun OmniSettingsPanel(
                         showSpeedDialog = true
                     }
                 }
-                // Audio Language picker
                 if (audioLabels.size > 1) {
                     item {
                         SettingsActionItemCompact("Audio: $currentAudio", Icons.Default.Language) {
@@ -1758,7 +1939,6 @@ fun OmniSettingsPanel(
                         }
                     }
                 }
-                // Subtitle picker
                 if (subtitleLabels.isNotEmpty()) {
                     item {
                         SettingsActionItemCompact("Subtitles: $currentSubtitle", Icons.Default.ClosedCaption) {
@@ -1775,35 +1955,23 @@ fun OmniSettingsPanel(
                     if (currentChannel != null) {
                         val label = if (isFavorite) "Remove from Favorites" else "Add to Favorites"
                         val icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder
-                        val iconColor = if (isFavorite) Color.Red else Color.Gray
-                        var isFocused by remember { mutableStateOf(false) }
                         val context = LocalContext.current
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .onFocusChanged { isFocused = it.isFocused }
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isFocused) Color.Cyan.copy(alpha = 0.15f) else Color.Transparent)
-                                .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(6.dp))
-                                .clickable {
-                                    val added = if (isFavorite) {
-                                        store.remove(currentChannel.name ?: "")
-                                        false
-                                    } else {
-                                        store.add(currentChannel)
-                                    }
-                                    isFavorite = added
-                                    val msg = if (added) "Added to Favorites" else "Removed from Favorites"
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        SettingsActionItemCompact(
+                            label = label,
+                            icon = icon,
+                            activeIconColor = if (isFavorite) Color.Red else Color.Cyan,
+                            inactiveIconColor = if (isFavorite) Color.Red.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.8f)
                         ) {
-                            Icon(icon, null, tint = if (isFocused) Color.Cyan else iconColor, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(label, color = if (isFocused) Color.White else Color.Gray, fontSize = 11.sp)
+                            val added = if (isFavorite) {
+                                store.remove(currentChannel.name ?: "")
+                                false
+                            } else {
+                                store.add(currentChannel)
+                            }
+                            isFavorite = added
+                            val msg = if (added) "Added to Favorites" else "Removed from Favorites"
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -1887,24 +2055,59 @@ fun SettingsActionItemCompact(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier = Modifier,
+    activeIconColor: Color = Color.Cyan,
+    inactiveIconColor: Color = Color.White.copy(alpha = 0.8f),
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.03f else 1.0f,
+        animationSpec = tween(200),
+        label = "settings_scale"
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
+            .scale(scale)
+            .clip(RoundedCornerShape(12.dp))
             .onFocusChanged { isFocused = it.isFocused }
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (isFocused) Color.Cyan.copy(alpha = 0.15f) else Color.Transparent)
-            .border(1.dp, if (isFocused) Color.Cyan else Color.Transparent, RoundedCornerShape(6.dp))
+            .background(if (isFocused) Color.Cyan.copy(alpha = 0.25f) else Color.Transparent)
+            .border(
+                width = 2.dp,
+                color = if (isFocused) Color.Cyan else Color.Transparent,
+                shape = RoundedCornerShape(12.dp)
+            )
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = if (isFocused) Color.Cyan else Color.Gray, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(label, color = if (isFocused) Color.White else Color.Gray, fontSize = 11.sp)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    if (isFocused) Color.Cyan.copy(alpha = 0.2f)
+                    else Color.White.copy(alpha = 0.05f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (isFocused) activeIconColor else inactiveIconColor,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Text(
+            text = label,
+            color = if (isFocused) Color.Cyan else Color.White,
+            fontSize = 14.sp,
+            fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
+        )
     }
 }
