@@ -62,7 +62,7 @@ fun OperationModeSetup(preferenceManager: SkySharedPref, isDark: Boolean) {
                             autoStartServer = true
                             loginChk = true
                             jtvGoServerPort = 5350
-                            iptvAppPackageName = "tvzone"
+                            iptvAppPackageName = "omni"
                         }
                         preferenceManager.savePreferences()
                     },

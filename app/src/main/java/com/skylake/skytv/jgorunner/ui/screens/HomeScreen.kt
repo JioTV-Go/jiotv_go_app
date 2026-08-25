@@ -29,11 +29,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.twotone.DirectionsRun
 import androidx.compose.material.icons.automirrored.twotone.ExitToApp
+import androidx.compose.material.icons.twotone.AllInclusive
+import androidx.compose.material.icons.twotone.AutoAwesome
 import androidx.compose.material.icons.twotone.Landscape
 import androidx.compose.material.icons.twotone.LiveTv
 import androidx.compose.material.icons.twotone.PlayCircleOutline
+import androidx.compose.material.icons.twotone.Polymer
+import androidx.compose.material.icons.twotone.Psychology
 import androidx.compose.material.icons.twotone.ResetTv
 import androidx.compose.material.icons.twotone.Stop
+import androidx.compose.material.icons.twotone.Stream
+import androidx.compose.material.icons.twotone.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -464,7 +470,7 @@ fun RowScope.OmniTvButton(
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
     ) {
-        ButtonContent("Omni TV", Icons.AutoMirrored.TwoTone.DirectionsRun)
+        ButtonContent("Omni TV", Icons.TwoTone.AutoAwesome  )
     }
 }
 
