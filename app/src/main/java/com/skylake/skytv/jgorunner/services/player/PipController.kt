@@ -61,13 +61,11 @@ class PipController(private val activity: Activity) {
         ) {
             try {
                 PlayerCommandBus.isEnteringPip = true
-                val paramsBuilder = PictureInPictureParams.Builder()
+                val params = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
                     .setActions(buildRemoteActions())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    paramsBuilder.setAutoEnterEnabled(true)
-                }
-                activity.enterPictureInPictureMode(paramsBuilder.build())
+                    .build()
+                activity.enterPictureInPictureMode(params)
             } catch (e: Exception) {
                 Log.w(tag, "Failed to enter PiP: ${e.message}")
             }
@@ -81,13 +79,11 @@ class PipController(private val activity: Activity) {
             !DeviceUtils.isTvDevice(activity)
         ) {
             try {
-                val paramsBuilder = PictureInPictureParams.Builder()
+                val params = PictureInPictureParams.Builder()
                     .setAspectRatio(Rational(16, 9))
                     .setActions(buildRemoteActions())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    paramsBuilder.setAutoEnterEnabled(true)
-                }
-                activity.setPictureInPictureParams(paramsBuilder.build())
+                    .build()
+                activity.setPictureInPictureParams(params)
             } catch (e: Exception) {
                 Log.w(tag, "Failed to update PiP actions: ${e.message}")
             }
