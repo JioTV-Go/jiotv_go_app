@@ -56,7 +56,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     private val _epgError = MutableStateFlow(false)
     val epgError: StateFlow<Boolean> = _epgError.asStateFlow()
 
-    
+
     private var loadChannelsJob: Job? = null
 
     init {
@@ -66,11 +66,11 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadChannels(forceRefresh: Boolean = false) {
-        
+
         loadChannelsJob?.cancel()
 
         loadChannelsJob = viewModelScope.launch(Dispatchers.IO) {
-            
+
             if (!forceRefresh && _allChannels.value.isNotEmpty()) {
                 _isLoading.value = false
                 _isError.value = false
@@ -82,7 +82,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
             var hasCache = false
 
-            
+
             if (!forceRefresh) {
                 val cachedJson = channelCachePrefs.getString("channels_json", null)
                 if (!cachedJson.isNullOrEmpty()) {
@@ -101,7 +101,7 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            
+
             val maxRetries = 6
             var success = false
 
@@ -120,19 +120,19 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                         suspendApplyFilters(response.result)
                         _isError.value = false
                         success = true
-                        break 
+                        break
                     }
                 } catch (e: Exception) {
                     Log.e("TvViewModel", "Channel load attempt $attempt/$maxRetries failed: ${e.localizedMessage}")
                 }
 
-                
+
                 if (attempt < maxRetries && isActive) {
                     delay((1000L + (attempt * 500L)).milliseconds)
                 }
             }
 
-            
+
             if (!success && !hasCache && _allChannels.value.isEmpty()) {
                 _isError.value = true
             } else {
@@ -145,7 +145,8 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun suspendApplyFilters(
         channels: List<Channel> = _allChannels.value,
-        newCategoryIds: Set<Int>? = null
+        newCategoryIds: Set<Int>? = null,
+        newLanguageIds: Set<Int>? = null
     ) {
         val activeCategoryIds = if (newCategoryIds != null) {
             newCategoryIds.toList().takeIf { it.isNotEmpty() }
@@ -155,9 +156,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
                 ?.takeIf { it.isNotEmpty() }
         }
 
-        val activeLanguageIds = preferenceManager.myPrefs.filterLI
-            ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
-            ?.takeIf { it.isNotEmpty() }
+        val activeLanguageIds = if (newLanguageIds != null) {
+            newLanguageIds.toList().takeIf { it.isNotEmpty() }
+        } else {
+            preferenceManager.myPrefs.filterLI
+                ?.split(",")?.mapNotNull { it.trim().toIntOrNull() }
+                ?.takeIf { it.isNotEmpty() }
+        }
 
         val tempResponse = ChannelResponse(result = channels)
         val filtered = withContext(Dispatchers.Default) {
@@ -171,9 +176,13 @@ class TvViewModel(application: Application) : AndroidViewModel(application) {
         _filteredChannels.value = filtered
     }
 
-    fun applyFilters(channels: List<Channel> = _allChannels.value, newCategoryIds: Set<Int>? = null) {
+    fun applyFilters(
+        channels: List<Channel> = _allChannels.value,
+        newCategoryIds: Set<Int>? = null,
+        newLanguageIds: Set<Int>? = null
+    ) {
         viewModelScope.launch {
-            suspendApplyFilters(channels, newCategoryIds)
+            suspendApplyFilters(channels, newCategoryIds, newLanguageIds)
         }
     }
 

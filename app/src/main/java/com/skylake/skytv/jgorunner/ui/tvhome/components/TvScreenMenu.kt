@@ -756,27 +756,40 @@ fun DropdownSelection2(
 ) {
     Column {
         Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { onExpandChange(true) },
+
+        OutlinedButton(
+            onClick = { onExpandChange(!expanded) },
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = selectedOption)
+        }
+
+        if (expanded) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
                 shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth()
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                Text(text = selectedOption)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { onExpandChange(false) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                options.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(text = option, color = MaterialTheme.colorScheme.onSurface) },
-                        onClick = {
-                            onOptionSelected(option)
-                            onExpandChange(false)
+                Column(
+                    modifier = Modifier.padding(vertical = 4.dp)
+                ) {
+                    options.forEach { option ->
+                        TextButton(
+                            onClick = {
+                                onOptionSelected(option)
+                                onExpandChange(false)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = option,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    )
+                    }
                 }
             }
         }

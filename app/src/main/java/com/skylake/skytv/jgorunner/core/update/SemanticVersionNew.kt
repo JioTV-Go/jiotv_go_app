@@ -44,6 +44,20 @@ data class SemanticVersionNew(
                 buildStr.split(".").filter { it.isNotEmpty() }
             )
         }
+
+        /**
+         * Lenient parse: never throws. Returns v0.0.0 for tags that aren't valid semver
+         * (e.g. "nightly", "2024.01", a corrupted cached value). Use this everywhere a
+         * release tag from the network or cache is parsed.
+         */
+        fun parseOrDefault(version: String?, default: SemanticVersionNew = SemanticVersionNew(0, 0, 0)): SemanticVersionNew {
+            if (version.isNullOrBlank()) return default
+            return try {
+                parse(version)
+            } catch (_: Exception) {
+                default
+            }
+        }
     }
 
     val coreVersion: String

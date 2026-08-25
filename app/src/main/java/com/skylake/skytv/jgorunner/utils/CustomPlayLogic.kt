@@ -12,29 +12,42 @@ private val specialIds = listOf(
 fun String.containsAnyId(): Boolean =
     specialIds.any { this.contains(it, ignoreCase = true) }
 
+// Tracks the single active listener per player so we can remove it before
+// adding a new one. Without this, every channel switch accumulates a new
+// listener and they all fire seekTo() simultaneously, causing repeated
+// STATE_BUFFERING hits and a persistent loading spinner.
+private val activeListeners = mutableMapOf<ExoPlayer, Player.Listener>()
+
+/**
+ * Call this when the ExoPlayer is about to be released (in onDispose).
+ * Removes the listener and drops the map entry so the player can be GC'd.
+ */
+@UnstableApi
+fun cleanupPlaybackLogic(exoPlayer: ExoPlayer) {
+    activeListeners.remove(exoPlayer)?.let { exoPlayer.removeListener(it) }
+}
+
 @UnstableApi
 fun setupCustomPlaybackLogic(
     exoPlayer: ExoPlayer,
     videoUrl: String,
     onReplay: (() -> Unit)? = null
 ) {
-    var hasSeeked = false
+    // Remove any listener registered for this player by a previous channel
+    activeListeners.remove(exoPlayer)?.let { exoPlayer.removeListener(it) }
 
-    exoPlayer.addListener(object : Player.Listener {
+    val listener = object : Player.Listener {
 
         override fun onPlaybackStateChanged(state: Int) {
-            if (state == Player.STATE_READY && !hasSeeked && videoUrl.containsAnyId()) {
-                exoPlayer.seekTo(14_500)
-                hasSeeked = true
-            }
-
             if (state == Player.STATE_ENDED) {
-                hasSeeked = false
                 onReplay?.invoke() ?: run {
-                    exoPlayer.seekTo(14_500)
+                    exoPlayer.seekToDefaultPosition()
                     exoPlayer.playWhenReady = true
                 }
             }
         }
-    })
+    }
+
+    activeListeners[exoPlayer] = listener
+    exoPlayer.addListener(listener)
 }

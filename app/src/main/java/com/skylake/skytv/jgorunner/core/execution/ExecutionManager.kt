@@ -17,8 +17,19 @@ fun runBinary(
     activity: ComponentActivity,
     arguments: Array<String>,
     onRunSuccess: () -> Unit,
-    onOutput: (String) -> Unit
+    onOutput: (String) -> Unit,
+    forceStart: Boolean = false
 ) {
+    // If already running and not forcing a restart, skip re-starting
+    if (BinaryService.isRunning && !forceStart) {
+        onRunSuccess()
+        CoroutineScope(Dispatchers.Main).launch {
+            BinaryService.instance?.binaryOutput?.observe(activity) { output ->
+                onOutput(output)
+            }
+        }
+        return
+    }
     val preferenceManager = SkySharedPref.getInstance(activity)
     val intent = Intent(activity, BinaryService::class.java).apply {
         putExtra(

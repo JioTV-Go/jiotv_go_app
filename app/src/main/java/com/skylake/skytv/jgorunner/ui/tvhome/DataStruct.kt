@@ -30,7 +30,9 @@ data class Channel(
     @SerializedName("channelLanguageId")
     val channelLanguageId: Int = 0,
     @SerializedName("isHD")
-    val isHD: Boolean = false
+    val isHD: Boolean = false,
+    @SerializedName("requiresSubscription")
+    val requiresSubscription: Boolean = false
 )
 
 @Keep
