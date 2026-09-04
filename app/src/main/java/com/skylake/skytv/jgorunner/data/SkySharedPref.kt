@@ -203,6 +203,8 @@ class SkySharedPref(context: Context) {
         @SharedPrefKey("enable_pip") var enablePip: Boolean = false,
         @SharedPrefKey("showEPG") var showEPG: Boolean = true,
 
+        @SharedPrefKey("operationMODE") var operationUI: Int = 999,
+
         // Omni TV layout prefs
         @SharedPrefKey("freeJioCatchup") var freeJioCatchup: Boolean = false,
         @SharedPrefKey("filterLI2") var filterLI2: String? = "",

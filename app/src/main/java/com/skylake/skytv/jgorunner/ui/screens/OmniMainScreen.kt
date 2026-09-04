@@ -128,7 +128,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     }
     val freeJioServer = remember(port) {
         OmniServer(
-            name = "Jio",
+            name = "JioTV Go",
             url = "http://127.0.0.1:$port",
             isFavoriteServer = false
         )
@@ -171,7 +171,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showAutoOpenServerDialog by remember { mutableStateOf(false) }
     var autoOpenServerName by remember {
-        mutableStateOf(if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "Jio")
+        mutableStateOf(if (prefManager.myPrefs.omniAutoOpenServer == FAVORITES_SERVER_URL || prefManager.myPrefs.omniAutoOpenServer?.equals("Favorites", ignoreCase = true) == true) "Favorites" else "JioTV Go")
     }
     var showDefaultUiDialog by remember { mutableStateOf(false) }
     var defaultUiLabel by remember {
@@ -203,6 +203,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     LaunchedEffect(isSidebarVisible) {
         if (isSidebarVisible) {
+            favoriteRefreshTick++
             Log.d(TAG,"favoriteRefreshTick++")
         }
     }
@@ -608,11 +609,11 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             LogCollector.log("Omni: Autostart on Boot set to $checked")
                         }
                     }
-                    item {
-                        OmniSettingsActionItem("Default UI: $defaultUiLabel", Icons.Default.DisplaySettings, enabled = true) {
-                            showDefaultUiDialog = true
-                        }
-                    }
+//                    item {
+//                        OmniSettingsActionItem("Default UI: $defaultUiLabel", Icons.Default.DisplaySettings, enabled = true) {
+//                            showDefaultUiDialog = true
+//                        }
+//                    }
                     item {
                         OmniSettingsActionItem("App Logs", Icons.Default.BugReport, enabled = true) {
                             showLogDialog = true
@@ -797,7 +798,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 }
                             }
                             Text(
-                                text = "Jio",
+                                text = "JioTV Go",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.padding(horizontal = 8.dp)
@@ -2871,8 +2872,8 @@ fun AutoOpenServerDialog(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit
 ) {
-    val servers = listOf("Jio", "Favorites")
-    var selected by remember { mutableStateOf(if (currentAutoOpen.equals("Favorites", ignoreCase = true) || currentAutoOpen == "favorite://omni") "Favorites" else "Jio") }
+    val servers = listOf("JioTV Go", "Favorites")
+    var selected by remember { mutableStateOf(if (currentAutoOpen.equals("Favorites", ignoreCase = true) || currentAutoOpen == "favorite://omni") "Favorites" else "JioTV Go") }
 
     AlertDialog(
         onDismissRequest = onDismiss,

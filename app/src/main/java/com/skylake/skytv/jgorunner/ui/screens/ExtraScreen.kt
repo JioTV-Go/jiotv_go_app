@@ -249,28 +249,33 @@ fun ExtraScreen(context: Context, onNavigate: (String) -> Unit) {
                 })
         }
 
+
         if (isSwitchForExp) {
-            item {
-                DebugSwitchItem(
-                    icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                    title = "Custom Playlist Support",
-                    subtitle = if (isCustomPlaylistEnabled.value)
-                        "Enabled - You can load custom M3U playlists"
-                    else
-                        "Disabled - Using default channel list",
-                    isChecked = isCustomPlaylistEnabled.value,
-                    onCheckedChange = { checked ->
-                        isCustomPlaylistEnabled.value = checked
-                        preferenceManager.myPrefs.customPlaylistSupport = checked
-                        applySettings()
-                        Toast.makeText(
-                            context,
-                            "Custom Playlist Support ${if (checked) "enabled" else "disabled"}",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                )
+
+            if (false) {
+                item {
+                    DebugSwitchItem(
+                        icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                        title = "Custom Playlist Support",
+                        subtitle = if (isCustomPlaylistEnabled.value)
+                            "Enabled - You can load custom M3U playlists"
+                        else
+                            "Disabled - Using default channel list",
+                        isChecked = isCustomPlaylistEnabled.value,
+                        onCheckedChange = { checked ->
+                            isCustomPlaylistEnabled.value = checked
+                            preferenceManager.myPrefs.customPlaylistSupport = checked
+                            applySettings()
+                            Toast.makeText(
+                                context,
+                                "Custom Playlist Support ${if (checked) "enabled" else "disabled"}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                }
             }
+
 
             item {
                 DebugSwitchItem(
@@ -299,33 +304,35 @@ fun ExtraScreen(context: Context, onNavigate: (String) -> Unit) {
                 )
             }
 
-            // Experimental: PiP Toggle
-            item {
-                val enablePip = remember { mutableStateOf(preferenceManager.myPrefs.enablePip) }
-                DebugSwitchItem(
-                    icon = Icons.Default.PictureInPicture,
-                    title = "Picture-in-Picture",
-                    subtitle = if (enablePip.value) "Enabled: PiP button, Back-to-PiP, auto-PiP" else "Disabled: no PiP UI or actions",
-                    isChecked = enablePip.value,
-                    onCheckedChange = { checked ->
-                        enablePip.value = checked
-                        preferenceManager.myPrefs.enablePip = checked
-                        applySettings()
-                        // If PiP is being disabled, ensure any active PiP and playback are stopped
-                        if (!checked) {
-                            try {
-                                PlayerCommandBus.requestStopPlayback()
-                                PlayerCommandBus.requestClosePip()
-                            } catch (_: Exception) { /* no-op */
+            if (false) {
+                // Experimental: PiP Toggle
+                item {
+                    val enablePip = remember { mutableStateOf(preferenceManager.myPrefs.enablePip) }
+                    DebugSwitchItem(
+                        icon = Icons.Default.PictureInPicture,
+                        title = "Picture-in-Picture",
+                        subtitle = if (enablePip.value) "Enabled: PiP button, Back-to-PiP, auto-PiP" else "Disabled: no PiP UI or actions",
+                        isChecked = enablePip.value,
+                        onCheckedChange = { checked ->
+                            enablePip.value = checked
+                            preferenceManager.myPrefs.enablePip = checked
+                            applySettings()
+                            // If PiP is being disabled, ensure any active PiP and playback are stopped
+                            if (!checked) {
+                                try {
+                                    PlayerCommandBus.requestStopPlayback()
+                                    PlayerCommandBus.requestClosePip()
+                                } catch (_: Exception) { /* no-op */
+                                }
                             }
+                            Toast.makeText(
+                                context,
+                                "Picture-in-Picture Mode ${if (checked) "enabled" else "disabled"}",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
-                        Toast.makeText(
-                            context,
-                            "Picture-in-Picture Mode ${if (checked) "enabled" else "disabled"}",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                )
+                    )
+                }
             }
 
 
@@ -665,7 +672,7 @@ fun RowScope.Button7(context: Context, onNavigate: (String) -> Unit) {
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor.value),
         contentPadding = PaddingValues(2.dp)
     ) {
-        ButtonContent("TV UI beta", Icons.Default.Terrain)
+        ButtonContent("Legacy TV UI", Icons.Default.Terrain)
     }
 }
 

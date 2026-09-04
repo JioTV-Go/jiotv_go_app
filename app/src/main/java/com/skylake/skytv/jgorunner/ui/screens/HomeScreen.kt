@@ -219,11 +219,11 @@ fun HomeScreen(
             RunIPTVButton {
                 onRunIPTVButtonClick()
             }
-            DebugButton(
-                enabled = isServerRunning
-            ) {
-                onDebugButtonClick()
-            }
+//            DebugButton(
+//                enabled = isServerRunning
+//            ) {
+//                onDebugButtonClick()
+//            }
             OmniTvButton(
                 enabled = isServerRunning
             ) {
@@ -470,7 +470,7 @@ fun RowScope.OmniTvButton(
         contentPadding = PaddingValues(2.dp),
         enabled = enabled
     ) {
-        ButtonContent("Omni TV", Icons.TwoTone.AutoAwesome  )
+        ButtonContent("TV", Icons.TwoTone.AutoAwesome  )
     }
 }
 

@@ -1481,10 +1481,10 @@ fun OmniPlayerOverlay(
 fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
     var time by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
+        val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
         while (true) {
-            val cal = Calendar.getInstance()
-            time = String.format("%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-            delay(30000)
+            time = sdf.format(java.util.Date())
+           delay(1000.milliseconds)
         }
     }
 
@@ -1501,9 +1501,9 @@ fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
             Text(
                 text = time,
                 color = Color.White,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
+                fontSize = 24.sp
             )
         }
 
@@ -1569,7 +1569,6 @@ fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
         }
     }
 }
-
 @Composable
 fun OverlayButton(
     onClick: () -> Unit,

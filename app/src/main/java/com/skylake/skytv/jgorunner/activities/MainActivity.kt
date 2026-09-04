@@ -76,6 +76,7 @@ import com.skylake.skytv.jgorunner.ui.screens.SettingsScreen
 import com.skylake.skytv.jgorunner.ui.screens.ZoneScreen
 import com.skylake.skytv.jgorunner.ui.theme.JGOTheme
 import com.skylake.skytv.jgorunner.services.CastManager
+import com.skylake.skytv.jgorunner.ui.components.JTVUISelectorPopup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -108,7 +109,7 @@ class MainActivity : FragmentActivity() {
     private var showLoginPopup by mutableStateOf(false)
     private var showLoginPopupD by mutableStateOf(false)
     private var isServerRunning by mutableStateOf(false)
-
+    var showOpUIDialog by  mutableStateOf(false)
     private var isGlowBox by mutableStateOf(false)
 
     private var showOverlayPermissionPopup by mutableStateOf(false)
@@ -131,10 +132,13 @@ class MainActivity : FragmentActivity() {
         BinaryUpdater.init(this)
 
 // DEL----------------------------------------------------------
-
 //        val intent = Intent(this, SetupWizardActivity::class.java)
 //        this.startActivity(intent)
 //        currentScreen = "Debug"
+
+//        preferenceManager.myPrefs.operationUI = 999
+//        preferenceManager.myPrefs.setupPending = true
+//        preferenceManager.savePreferences()
 
 // DEL----------------------------------------------------------
 
@@ -212,6 +216,18 @@ class MainActivity : FragmentActivity() {
             finish()
             return
         }
+
+        Log.d("nano", preferenceManager.myPrefs.operationUI.toString())
+
+        if (preferenceManager.myPrefs.operationMODE != 1) {
+            if (preferenceManager.myPrefs.operationUI != 0 &&
+                preferenceManager.myPrefs.operationUI != 1
+            ) {
+                showOpUIDialog = true
+            }
+        }
+
+
 
         if (isServerRunning) {
             BinaryService.instance?.binaryOutput?.observe(this) {
@@ -498,7 +514,11 @@ class MainActivity : FragmentActivity() {
                                 onNavigate = { title -> currentScreen = title })
 
                             "Runner" -> RunnerScreen(context = this@MainActivity)
-                            "Login" -> LoginScreen(context = this@MainActivity)
+                            "Login" -> LoginScreenPop(
+                                showDialog = true,
+                                onDismissRequest = { currentScreen = "Home" },
+                                context = this@MainActivity
+                            )
                             "Cast" -> CastScreen(context = this@MainActivity)
                             "Zone" -> ZoneScreen(
                                 context = this@MainActivity,
@@ -646,6 +666,18 @@ class MainActivity : FragmentActivity() {
                             context = this@MainActivity
                         )
 
+                        JTVUISelectorPopup(
+                            context = this@MainActivity,
+                            isVisible = showOpUIDialog,
+                            preferenceManager = preferenceManager,
+                            onModeSelected = {
+                                showOpUIDialog = false
+                            },
+                            onDismiss = {
+                                showOpUIDialog = false
+                            }
+                        )
+
 
                     }
                 }
@@ -679,15 +711,15 @@ class MainActivity : FragmentActivity() {
                 }
 
                 "Runner" -> {
-                    currentScreen = "Debug"
+                    currentScreen = "Home"
                 }
 
                 "Login" -> {
-                    currentScreen = "Debug"
+                    currentScreen = "Home"
                 }
 
                 "Zone" -> {
-                    currentScreen = "Debug"
+                    currentScreen = "Home"
                 }
 
                 else -> {

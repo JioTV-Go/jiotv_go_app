@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SoupKitchen
 import androidx.compose.material.icons.filled.Stream
 import androidx.compose.material.icons.filled.Timelapse
+import androidx.compose.material.icons.filled.Token
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -90,6 +91,7 @@ import com.skylake.skytv.jgorunner.core.data.JTVConfigurationManager
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.ui.components.BackupDialog
 import com.skylake.skytv.jgorunner.ui.components.JTVModeSelectorPopup
+import com.skylake.skytv.jgorunner.ui.components.JTVUISelectorPopup
 import com.skylake.skytv.jgorunner.ui.components.ModeSelectionDialog
 import com.skylake.skytv.jgorunner.ui.components.restoreBackup
 import kotlin.system.exitProcess
@@ -159,6 +161,7 @@ fun SettingsScreen(
     var showPortDialog by remember { mutableStateOf(false) }
     var showModeDialog by remember { mutableStateOf(false) }
     var showOperationDialog by remember { mutableStateOf(false) }
+    var showOpUIDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var showBackupDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
@@ -266,6 +269,14 @@ fun SettingsScreen(
                     title = "Operation Mode : $opMode",
                     subtitle = "Select mode for app operation",
                     onClick = { showOperationDialog = true })
+            }
+
+            item {
+
+                SettingItem(icon = Icons.Filled.Token,
+                    title = "Operation UI",
+                    subtitle = "Choose your preferred interface",
+                    onClick = { showOpUIDialog = true })
             }
 
             item {
@@ -664,6 +675,18 @@ fun SettingsScreen(
         },
         onDismiss = {
             showOperationDialog = false
+        }
+    )
+
+    JTVUISelectorPopup(
+        context = context,
+        isVisible = showOpUIDialog,
+        preferenceManager = preferenceManager,
+        onModeSelected = {
+            showOpUIDialog = false
+        },
+        onDismiss = {
+            showOpUIDialog = false
         }
     )
 

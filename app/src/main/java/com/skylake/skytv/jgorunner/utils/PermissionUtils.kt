@@ -6,22 +6,24 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
 
-fun Context.findActivity(): Activity {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is Activity) return context
-        context = context.baseContext
+fun Context.findActivity(): Activity? {
+    var currentContext = this
+    while (currentContext is ContextWrapper) {
+        if (currentContext is Activity) return currentContext
+        currentContext = currentContext.baseContext
     }
-    throw IllegalStateException("Activity not found!")
+    return null
+}
+
+fun Context.isLeanbackTV(): Boolean {
+    return packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
 }
 
 fun hasNotificationPermission(context: Context): Boolean {
@@ -35,84 +37,75 @@ fun hasNotificationPermission(context: Context): Boolean {
     }
 }
 
-fun requestNotificationPermission(activity: Activity) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        try {
-            val componentActivity = activity as? androidx.activity.ComponentActivity
-            if (componentActivity != null) {
-                val launcher = componentActivity.registerForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { isGranted ->
-                    Toast.makeText(
-                        activity,
-                        if (isGranted) "Notification permission granted" else "Permission denied",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            } else {
-                activity.requestPermissions(
-                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                    1001
-                )
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(activity, "Error requesting permission", Toast.LENGTH_SHORT).show()
-        }
-    } else {
-        Toast.makeText(activity, "Notification permission not required", Toast.LENGTH_SHORT).show()
-    }
-}
-
-
 fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        pm.isIgnoringBatteryOptimizations(context.packageName)
-    } else true
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+    if (context.isLeanbackTV()) return true
+
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    return powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: true
 }
 
 fun requestBatteryOptimizationExemption(context: Context) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = "package:${context.packageName}".toUri()
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || context.isLeanbackTV()) {
+        Toast.makeText(context, "Battery optimization not required on this device", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val primaryIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:${context.packageName}")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    runCatching {
+        context.startActivity(primaryIntent)
+    }.recoverCatching {
+        context.startActivity(fallbackIntent)
+    }.recoverCatching {
+        context.startActivity(appDetailsIntent)
+    }.onFailure {
+        Toast.makeText(context, "Unable to open system battery settings", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun getStoragePermissions(): Array<String> {
+    return when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+            )
         }
-        context.startActivity(intent)
-    } else {
-        Toast.makeText(context, "Not required on this Android version", Toast.LENGTH_SHORT).show()
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+            arrayOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO
+            )
+        }
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        else -> {
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
     }
 }
 
 fun hasStoragePermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) ==
-                PackageManager.PERMISSION_GRANTED
-    } else {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED
-    }
-}
-
-fun requestStoragePermission(activity: Activity) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO
-            ),
-            1002
-        )
-    } else {
-        ActivityCompat.requestPermissions(
-            activity,
-            arrayOf(
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ),
-            1003
-        )
+    val permissions = getStoragePermissions()
+    return permissions.all { perm ->
+        ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
     }
 }

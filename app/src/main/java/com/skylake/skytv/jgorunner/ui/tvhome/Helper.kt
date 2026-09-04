@@ -24,7 +24,8 @@ object Helper {
         preferenceManager.myPrefs.autoStartServer = true
         preferenceManager.myPrefs.loginChk = true
         preferenceManager.myPrefs.jtvGoServerPort = 5350
-        preferenceManager.myPrefs.iptvAppPackageName = "tvzone"
+        preferenceManager.myPrefs.operationUI = 0
+        preferenceManager.myPrefs.iptvAppPackageName = "omni"
         preferenceManager.myPrefs.operationMODE = EASY_MODE
         //        preferenceManager.myPrefs.startTvAutomatically = true
 
@@ -40,6 +41,28 @@ object Helper {
 
         preferenceManager.myPrefs.iptvAppPackageName = ""
         preferenceManager.myPrefs.operationMODE = EXPERT_MODE
+        preferenceManager.savePreferences()
+    }
+
+    fun setUI0Mode(context: Context) {
+        val preferenceManager = SkySharedPref(context)
+        Toast.makeText(context, "Setting operation UI to Omni UI", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Setting operation UI to Omni UI")
+
+        preferenceManager.myPrefs.iptvAppPackageName = "omni"
+        preferenceManager.myPrefs.operationUI = 0
+        preferenceManager.myPrefs.operationMODE = EASY_MODE
+        preferenceManager.savePreferences()
+    }
+
+    fun setUI1Mode(context: Context) {
+        val preferenceManager = SkySharedPref(context)
+        Toast.makeText(context, "Setting operation UI to Legacy TV UI", Toast.LENGTH_SHORT).show()
+        Log.d(TAG, "Setting operation UI to Legacy TV UI")
+
+        preferenceManager.myPrefs.iptvAppPackageName = "tvzone"
+        preferenceManager.myPrefs.operationUI = 1
+        preferenceManager.myPrefs.operationMODE = EASY_MODE
         preferenceManager.savePreferences()
     }
 
