@@ -1,5 +1,6 @@
 package com.skylake.skytv.jgorunner.ui.screens
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.app.Activity
@@ -73,6 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import android.os.Build
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.combinedClickable
@@ -101,14 +103,82 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val FAVORITES_SERVER_URL = "favorite://omni"
+private const val TAG2 = "OmniMainScreen"
 
 data class OmniServer(
     val name: String,
     val url: String,
     val isFavoriteServer: Boolean = false
 )
+
+
+class OmniMainViewModel(
+    private val prefManager: SkySharedPref
+) : ViewModel() {
+
+    private val _rawChannels = MutableStateFlow<List<OmniChannel>>(emptyList())
+    val searchQuery = MutableStateFlow("")
+    val selectedCategories = MutableStateFlow<Set<String>>(emptySet())
+    val selectedLanguages = MutableStateFlow<Set<String>>(emptySet())
+    val freeOnly = MutableStateFlow(prefManager.myPrefs.freeOnly)
+    val gson = Gson()
+
+    init {
+        val catJson = prefManager.myPrefs.omniSelectedCategories ?: "[]"
+        val langJson = prefManager.myPrefs.omniSelectedLanguages ?: "[]"
+        val type = object : TypeToken<Set<String>>() {}.type
+        selectedCategories.value = gson.fromJson(catJson, type) ?: emptySet()
+        selectedLanguages.value = gson.fromJson(langJson, type) ?: emptySet()
+    }
+
+    val filteredChannels = combine(
+        _rawChannels, searchQuery, selectedCategories, selectedLanguages, freeOnly
+    ) { channels, query, categories, languages, isFreeOnly ->
+        if (channels.isEmpty()) return@combine emptyList()
+        channels.filter { channel ->
+            val matchesSearch = query.isEmpty() ||
+                    channel.name?.contains(query, ignoreCase = true) == true ||
+                    channel.group?.contains(query, ignoreCase = true) == true
+
+            val matchesCategory = categories.isEmpty() || categories.any { filter ->
+                channel.group?.contains(filter, ignoreCase = true) == true ||
+                        filter.contains(channel.group.orEmpty(), ignoreCase = true)
+            }
+
+            val matchesLanguage = languages.isEmpty() || languages.any { filter ->
+                channel.language?.contains(filter, ignoreCase = true) == true ||
+                        filter.contains(channel.language.orEmpty(), ignoreCase = true)
+            }
+
+            val matchesFreeOnly = !isFreeOnly || !channel.requiresSubscription
+
+            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
+        }
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setChannels(channels: List<OmniChannel>) {
+        _rawChannels.value = channels
+    }
+
+    class Factory(private val pref: SkySharedPref) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return OmniMainViewModel(pref) as T
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -117,25 +187,21 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val repository = remember { OmniRepository(context) }
     val port = prefManager.myPrefs.jtvGoServerPort
     val scope = rememberCoroutineScope()
-    val gson = remember { Gson() }
 
-    val favoriteServer = remember {
-        OmniServer(
-            name = "Favorites",
-            url = FAVORITES_SERVER_URL,
-            isFavoriteServer = true
-        )
-    }
-    val freeJioServer = remember(port) {
-        OmniServer(
-            name = "JioTV Go",
-            url = "http://127.0.0.1:$port",
-            isFavoriteServer = false
-        )
-    }
-    val availableServers = remember(favoriteServer, freeJioServer) {
-        listOf(favoriteServer, freeJioServer)
-    }
+    val viewModel: OmniMainViewModel = viewModel(factory = OmniMainViewModel.Factory(prefManager))
+
+    val filteredChannels by viewModel.filteredChannels.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val selectedCategories by viewModel.selectedCategories.collectAsState()
+    val selectedLanguages by viewModel.selectedLanguages.collectAsState()
+    val freeOnly by viewModel.freeOnly.collectAsState()
+
+    val gson = viewModel.gson
+
+    val favoriteServer = remember { OmniServer("Favorites", FAVORITES_SERVER_URL, true) }
+    val freeJioServer = remember(port) { OmniServer("JioTV Go", "http://127.0.0.1:$port", false) }
+    val availableServers = remember(favoriteServer, freeJioServer) { listOf(favoriteServer, freeJioServer) }
+
     val autoOpenPref = prefManager.myPrefs.omniAutoOpenServer
     val initialServer = remember(autoOpenPref, favoriteServer, freeJioServer) {
         if (autoOpenPref == FAVORITES_SERVER_URL || autoOpenPref?.equals("Favorites", ignoreCase = true) == true) {
@@ -146,26 +212,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     }
     var currentServer by remember { mutableStateOf(initialServer) }
     var fullChannelList by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
-
     var channels by remember { mutableStateOf<List<OmniChannel>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     var isSidebarVisible by remember { mutableStateOf(false) }
     var isSearchVisible by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
     var isSearchFocused by remember { mutableStateOf(false) }
-
-    var selectedCategories by remember {
-        val json = prefManager.myPrefs.omniSelectedCategories ?: "[]"
-        val type = object : TypeToken<Set<String>>() {}.type
-        mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
-    }
-    var selectedLanguages by remember {
-        val json = prefManager.myPrefs.omniSelectedLanguages ?: "[]"
-        val type = object : TypeToken<Set<String>>() {}.type
-        mutableStateOf<Set<String>>(gson.fromJson(json, type) ?: emptySet())
-    }
 
     var showCategoryDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
@@ -175,16 +228,10 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     }
     var showDefaultUiDialog by remember { mutableStateOf(false) }
     var defaultUiLabel by remember {
-        mutableStateOf(
-            omniDefaultUiLabel(
-                prefManager.myPrefs.iptvAppPackageName,
-                prefManager.myPrefs.iptvAppName
-            )
-        )
+        mutableStateOf(omniDefaultUiLabel(prefManager.myPrefs.iptvAppPackageName, prefManager.myPrefs.iptvAppName))
     }
     var hasAutoplayed by remember { mutableStateOf(false) }
 
-    var freeOnly by remember { mutableStateOf(prefManager.myPrefs.freeOnly) }
     var freeJioCatchup by remember { mutableStateOf(prefManager.myPrefs.freeJioCatchup) }
     var catchupChannelTarget by remember { mutableStateOf<OmniChannel?>(null) }
     var isDarkMode by remember { mutableStateOf(prefManager.myPrefs.darkMODE) }
@@ -197,6 +244,9 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     var gridColumnCount by remember(settingsUpdateTrigger) { mutableIntStateOf(prefManager.myPrefs.omniGridColumnCount ?: 0) }
     var showGridColumnDialog by remember { mutableStateOf(false) }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    var backPressedOnce by remember { mutableStateOf(false) }
+
     LaunchedEffect(currentServer) {
         hasAutoplayed = false
     }
@@ -204,55 +254,21 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     LaunchedEffect(isSidebarVisible) {
         if (isSidebarVisible) {
             favoriteRefreshTick++
-            Log.d(TAG,"favoriteRefreshTick++")
+            Log.d(TAG2,"favoriteRefreshTick++")
         }
     }
 
     val searchFocusRequester = remember { FocusRequester() }
     val firstChannelFocusRequester = remember { FocusRequester() }
-    val firstSidebarFocusRequester = remember { FocusRequester() }
 
-    val hasCategories = remember(channels) {
-        channels.any { !it.group.isNullOrBlank() }
-    }
-    val hasLanguages = remember(channels) {
-        channels.any { !it.language.isNullOrBlank() }
-    }
+    val hasCategories = remember(channels) { channels.any { !it.group.isNullOrBlank() } }
+    val hasLanguages = remember(channels) { channels.any { !it.language.isNullOrBlank() } }
 
-    fun filterChannelList(sourceList: List<OmniChannel>): List<OmniChannel> {
-        return sourceList.filter { channel ->
-            val matchesSearch = searchQuery.isEmpty() ||
-                channel.name?.contains(searchQuery, ignoreCase = true) == true ||
-                channel.group?.contains(searchQuery, ignoreCase = true) == true
-
-            val matchesCategory = selectedCategories.isEmpty() || selectedCategories.any { filter ->
-                channel.group?.contains(filter, ignoreCase = true) == true ||
-                filter.contains(channel.group.orEmpty(), ignoreCase = true)
-            }
-
-            val matchesLanguage = selectedLanguages.isEmpty() || selectedLanguages.any { filter ->
-                channel.language?.contains(filter, ignoreCase = true) == true ||
-                filter.contains(channel.language.orEmpty(), ignoreCase = true)
-            }
-
-            val matchesFreeOnly = !freeOnly || !channel.requiresSubscription
-
-            matchesSearch && matchesCategory && matchesLanguage && matchesFreeOnly
-        }
-    }
-
-    val filteredChannels = remember(channels, searchQuery, selectedCategories, selectedLanguages, freeOnly) {
-        filterChannelList(channels)
-    }
-
-    fun triggerAutoplay(rawChannelList: List<OmniChannel>) {
-        val channelList = filterChannelList(rawChannelList)
+    fun triggerAutoplay(channelList: List<OmniChannel>) {
         val autoFirst = prefManager.myPrefs.omniAutoplayFirstChannel
         val autoLast = prefManager.myPrefs.omniAutoplayLastChannel
         val lastPlayedUrl = prefManager.myPrefs.currChannelUrl?.trim().orEmpty()
         val lastPlayedName = prefManager.myPrefs.currChannelName?.trim().orEmpty()
-
-        LogCollector.log("Omni: Checking Autoplay -> autoFirst: $autoFirst, autoLast: $autoLast, hasAutoplayed: $hasAutoplayed, filtered channelList size: ${channelList.size}, lastChannel: '$lastPlayedName'")
 
         if (hasAutoplayed || channelList.isEmpty()) return
         if (!autoFirst && !autoLast) return
@@ -260,12 +276,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         val targetChannel = if (autoLast && (lastPlayedUrl.isNotBlank() || lastPlayedName.isNotBlank())) {
             channelList.find { ch ->
                 (lastPlayedName.isNotBlank() && ch.name?.trim().equals(lastPlayedName, ignoreCase = true)) ||
-                (lastPlayedUrl.isNotBlank() && (
-                    ch.url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
-                    ch.m3u8Url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
-                    ch.mpdUrl?.equals(lastPlayedUrl, ignoreCase = true) == true ||
-                    (ch.id != null && lastPlayedUrl.contains(ch.id!!))
-                ))
+                        (lastPlayedUrl.isNotBlank() && (
+                                ch.url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                                        ch.m3u8Url?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                                        ch.mpdUrl?.equals(lastPlayedUrl, ignoreCase = true) == true ||
+                                        (ch.id != null && lastPlayedUrl.contains(ch.id!!))
+                                ))
             } ?: if (autoFirst) channelList.firstOrNull() else null
         } else if (autoFirst) {
             channelList.firstOrNull()
@@ -274,7 +290,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         if (targetChannel != null) {
             hasAutoplayed = true
             val targetIndex = channelList.indexOf(targetChannel).coerceAtLeast(0)
-            LogCollector.log("Omni: Autoplaying channel '${targetChannel.name}' on server '${currentServer.name}' (index: $targetIndex in ${channelList.size} filtered channels)")
             OmniDataManager.currentChannelList = channelList
             try {
                 PlayerCommandBus.requestClosePip()
@@ -283,63 +298,52 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 putExtra("channel_index", targetIndex)
             }
             context.startActivity(intent)
-        } else {
-            LogCollector.log("Omni: Autoplay found no matching target channel in ${channelList.size} filtered channels")
         }
     }
 
-    // Load channels on server change or favorites refresh
     LaunchedEffect(currentServer, favoriteRefreshTick) {
         if (currentServer.url == FAVORITES_SERVER_URL) {
-            LogCollector.log("Omni: Loading Favorites server channels")
             if (fullChannelList.isEmpty()) {
                 try {
                     fullChannelList = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
                 } catch (_: Exception) {}
             }
             val favs = favoritesStore.load()
-            if (fullChannelList.isNotEmpty()) {
+            val newChannels = if (fullChannelList.isNotEmpty()) {
                 val favMap = favs.associateBy { it.name }
-                channels = fullChannelList.filter { favMap.containsKey(it.name) }
+                fullChannelList.filter { favMap.containsKey(it.name) }
             } else {
-                channels = favs.map { fav ->
+                favs.map { fav ->
                     OmniChannel(
-                        id = fav.id,
-                        name = fav.name,
-                        group = "Favorites",
-                        language = "Hindi",
-                        logo = null,
-                        url = fav.url,
-                        m3u8Url = fav.url,
-                        mpdUrl = null,
-                        licenseUrl = null,
-                        requiresSubscription = false
+                        id = fav.id, name = fav.name, group = "Favorites", language = "Hindi",
+                        logo = null, url = fav.url, m3u8Url = fav.url, mpdUrl = null,
+                        licenseUrl = null, requiresSubscription = false
                     )
                 }
             }
+            channels = newChannels
+            viewModel.setChannels(newChannels)
+            delay(100)
             isLoading = false
             errorMessage = null
-            LogCollector.log("Omni: Loaded ${channels.size} favorite channels")
-            triggerAutoplay(channels)
+            triggerAutoplay(newChannels)
         } else {
             isLoading = true
             errorMessage = null
             try {
-                LogCollector.log("Omni: Fetching channels from server: ${currentServer.name} (Port: $port)")
                 val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
                 fullChannelList = fetched
                 channels = fetched
+                viewModel.setChannels(fetched)
                 if (fetched.isEmpty()) {
                     errorMessage = "No channels found."
-                    LogCollector.log("Omni: Channels fetch returned empty list.")
                 } else {
-                    LogCollector.log("Omni: Successfully loaded ${fetched.size} channels from ${currentServer.name}")
                     triggerAutoplay(fetched)
                 }
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Failed to load channels."
-                LogCollector.logError("Omni: Failed to load channels from server", e)
             }
+            delay(100)
             isLoading = false
         }
     }
@@ -359,11 +363,24 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
     BackHandler {
         when {
-            isSearchVisible -> isSearchVisible = false
+            isSearchVisible -> {
+                isSearchVisible = false
+                viewModel.searchQuery.value = ""
+            }
             isSidebarVisible -> isSidebarVisible = false
             else -> {
-                LogCollector.log("Omni: Back pressed -> navigating to Home")
-                onNavigate("Home")
+                if (backPressedOnce) {
+                    onNavigate("Home")
+                } else {
+                    backPressedOnce = true
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Press back again to exit",
+                            duration = SnackbarDuration.Short
+                        )
+                        backPressedOnce = false
+                    }
+                }
             }
         }
     }
@@ -372,15 +389,13 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
     val drawerWidth = if (isTv) 300.dp else 244.dp
 
     val bgColor = if (isDarkMode) Color(0xFF121212) else Color(0xFFF5F5F5)
-    val cardBg = if (isDarkMode) Color(0xFF1E1E1E) else Color.White
-    val textColor = if (isDarkMode) Color.White else Color(0xFF1C1B1F)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
     ) {
-        // --- SIDEBAR DRAWER ---
+
         AnimatedVisibility(
             visible = isSidebarVisible,
             modifier = Modifier
@@ -402,31 +417,15 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             )
                         )
                     )
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp)
-                    )
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
             ) {
-                // Header
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 4.dp)
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 4.dp)
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Channel Settings",
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Omni UI Settings",
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
-                            fontSize = 12.sp
-                        )
+                        Text("Channel Settings", color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text("Omni UI Settings", color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f), fontSize = 12.sp)
                     }
                     var isRefreshFocused by remember { mutableStateOf(false) }
                     IconButton(
@@ -435,16 +434,16 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 scope.launch {
                                     isLoading = true
                                     try {
-                                        LogCollector.log("Omni: Force refreshing channels from server...")
                                         repository.clearCache()
                                         val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port, forceRefresh = true) }
                                         fullChannelList = fetched
                                         channels = fetched
+                                        viewModel.setChannels(fetched)
                                         errorMessage = null
                                     } catch (e: Exception) {
                                         errorMessage = e.localizedMessage
-                                        LogCollector.logError("Omni: Refresh failed", e)
                                     }
+                                    delay(100)
                                     isLoading = false
                                 }
                             }
@@ -455,11 +454,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             .background(if (isRefreshFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent, RoundedCornerShape(10.dp))
                             .border(1.dp, if (isRefreshFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(10.dp))
                     ) {
-                        Icon(
-                            Icons.Default.Refresh, "Refresh",
-                            tint = if (isLoading) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Icon(Icons.Default.Refresh, "Refresh", tint = if (isLoading) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     var isCloseFocused by remember { mutableStateOf(false) }
@@ -476,71 +471,41 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
 
                 LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                 ) {
-                    // ---- SERVERS ----
                     item { OmniDrawerSectionLabel("SERVERS") }
                     item {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                                .padding(4.dp)
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(12.dp)).padding(4.dp)
                         ) {
                             availableServers.forEach { server ->
-                                OmniServerListItem(
-                                    server = server,
-                                    isSelected = server.url == currentServer.url,
-                                    onSelected = {
-                                        if (currentServer.url != server.url) {
-                                            currentServer = server
-                                            LogCollector.log("Omni: Switched server to: ${server.name} (${server.url})")
-                                        }
-                                    }
-                                )
+                                OmniServerListItem(server = server, isSelected = server.url == currentServer.url, onSelected = {
+                                    if (currentServer.url != server.url) currentServer = server
+                                })
                             }
                         }
                     }
 
-                    // ---- FILTERS ----
                     item { OmniDrawerSectionLabel("FILTERS") }
-                    item {
-                        OmniSettingsActionItem("Category Filter", Icons.Default.FilterList, enabled = hasCategories) { showCategoryDialog = true }
-                    }
-                    item {
-                        OmniSettingsActionItem("Language Filter", Icons.Default.Language, enabled = hasLanguages) { showLanguageDialog = true }
-                    }
+                    item { OmniSettingsActionItem("Category Filter", Icons.Default.FilterList, enabled = hasCategories) { showCategoryDialog = true } }
+                    item { OmniSettingsActionItem("Language Filter", Icons.Default.Language, enabled = hasLanguages) { showLanguageDialog = true } }
                     item {
                         OmniSettingsActionItem("Clear Filters", Icons.Default.FilterAltOff, enabled = true) {
-                            selectedCategories = emptySet()
-                            selectedLanguages = emptySet()
+                            viewModel.selectedCategories.value = emptySet()
+                            viewModel.selectedLanguages.value = emptySet()
                             prefManager.myPrefs.omniSelectedCategories = "[]"
                             prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
-                            LogCollector.log("Omni: Cleared filter selections")
                         }
                     }
 
-                    // ---- PLAYBACK OPTIONS ----
                     item { OmniDrawerSectionLabel("PLAYBACK") }
-                    item {
-                        OmniSettingsActionItem("Auto Open: $autoOpenServerName", Icons.Default.Dns, enabled = true) {
-                            showAutoOpenServerDialog = true
-                        }
-                    }
-
+                    item { OmniSettingsActionItem("Auto Open: $autoOpenServerName", Icons.Default.Dns, enabled = true) { showAutoOpenServerDialog = true } }
                     item {
                         val columnLabel = if (gridColumnCount <= 0) "Auto" else "$gridColumnCount"
-                        OmniSettingsActionItem("Grid Columns: $columnLabel", Icons.Default.ViewModule, enabled = true) {
-                            showGridColumnDialog = true
-                        }
+                        OmniSettingsActionItem("Grid Columns: $columnLabel", Icons.Default.ViewModule, enabled = true) { showGridColumnDialog = true }
                     }
-
                     item {
                         var checked by remember(settingsUpdateTrigger) { mutableStateOf(prefManager.myPrefs.omniAutoplayFirstChannel) }
                         OmniSettingsToggle("Autoplay: First Channel", checked) {
@@ -590,7 +555,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                         }
                     }
 
-                    // ---- SYSTEM ----
                     item { OmniDrawerSectionLabel("SYSTEM") }
                     item {
                         OmniSettingsToggle("Day / Night Mode", isDarkMode) { checked ->
@@ -606,19 +570,9 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             autobootChecked = checked
                             prefManager.myPrefs.omniAutoStartAppOnBoot = checked
                             prefManager.savePreferences()
-                            LogCollector.log("Omni: Autostart on Boot set to $checked")
                         }
                     }
-//                    item {
-//                        OmniSettingsActionItem("Default UI: $defaultUiLabel", Icons.Default.DisplaySettings, enabled = true) {
-//                            showDefaultUiDialog = true
-//                        }
-//                    }
-                    item {
-                        OmniSettingsActionItem("App Logs", Icons.Default.BugReport, enabled = true) {
-                            showLogDialog = true
-                        }
-                    }
+                    item { OmniSettingsActionItem("App Logs", Icons.Default.BugReport, enabled = true) { showLogDialog = true } }
                     item {
                         OmniSettingsActionItem("Reset Channel Settings", Icons.Default.RestartAlt, enabled = true) {
                             prefManager.myPrefs.freeOnly = true
@@ -626,21 +580,22 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             prefManager.myPrefs.omniAutoplayFirstChannel = false
                             prefManager.myPrefs.omniAutoplayLastChannel = false
                             prefManager.myPrefs.enablePip = false
-                            prefManager.myPrefs.darkMODE = true
-                            prefManager.myPrefs.omniEnableSwipeGestures = true
-                            prefManager.myPrefs.omniEnableDoubleTapSeek = true
-                            prefManager.myPrefs.omniAnimationEnabled = true
+                            prefManager.myPrefs.darkMODE = false
+                            prefManager.myPrefs.omniEnableSwipeGestures = false
+                            prefManager.myPrefs.omniEnableDoubleTapSeek = false
+                            prefManager.myPrefs.omniAnimationEnabled = false
                             prefManager.myPrefs.omniSelectedCategories = "[]"
                             prefManager.myPrefs.omniSelectedLanguages = "[]"
                             prefManager.savePreferences()
                             repository.clearCache()
 
-                            freeOnly = true
+                            viewModel.freeOnly.value = true
                             freeJioCatchup = false
-                            isDarkMode = true
-                            selectedCategories = emptySet()
-                            selectedLanguages = emptySet()
+//                            isDarkMode = false
+                            viewModel.selectedCategories.value = emptySet()
+                            viewModel.selectedLanguages.value = emptySet()
                             settingsUpdateTrigger++
+                            favoriteRefreshTick++
 
                             Toast.makeText(context, "Settings reset & cache cleared", Toast.LENGTH_SHORT).show()
                         }
@@ -650,7 +605,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
         }
 
-        // Dim scrim behind drawer on phones
         if (!isTv && isSidebarVisible) {
             Box(
                 modifier = Modifier
@@ -664,38 +618,27 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             )
         }
 
-        // --- MAIN CHANNEL GRID ---
+
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = if (isTv && isSidebarVisible) drawerWidth else 0.dp)
+            modifier = Modifier.fillMaxSize().padding(start = if (isTv && isSidebarVisible) drawerWidth else 0.dp)
         ) {
-            // Top bar: search toggle / server name / menu icon
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 AnimatedContent(
                     targetState = isSearchVisible,
-                    transitionSpec = {
-                        (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.9f))
-                            .togetherWith(fadeOut(tween(120)))
-                    },
+                    transitionSpec = { (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.9f)).togetherWith(fadeOut(tween(120))) },
                     label = "search-bar",
                     modifier = Modifier.fillMaxWidth()
                 ) { searchActive ->
                     if (searchActive) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(38.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
                             var isBackFocused by remember { mutableStateOf(false) }
                             IconButton(
                                 onClick = {
                                     isSearchVisible = false
-                                    searchQuery = ""
+                                    viewModel.searchQuery.value = ""
                                 },
                                 modifier = Modifier
                                     .size(32.dp)
@@ -703,87 +646,48 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     .background(if (isBackFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
                                     .border(1.dp, if (isBackFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Close search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-
                             Spacer(modifier = Modifier.width(4.dp))
-
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(38.dp)
-                                    .border(
-                                        1.dp,
-                                        if (isSearchFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                        CircleShape
-                                    )
+                                modifier = Modifier.weight(1f).height(38.dp).border(1.dp, if (isSearchFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (searchQuery.isEmpty()) {
-                                            Text(
-                                                text = "Search channels...",
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                            )
+                                            Text("Search channels...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                                         }
                                         BasicTextField(
                                             value = searchQuery,
-                                            onValueChange = { searchQuery = it },
+                                            onValueChange = { viewModel.searchQuery.value = it },
                                             singleLine = true,
-                                            textStyle = TextStyle(
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onBackground
-                                            ),
+                                            textStyle = TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .onFocusChanged { isSearchFocused = it.isFocused }
-                                                .focusRequester(searchFocusRequester)
+                                            modifier = Modifier.fillMaxWidth().onFocusChanged { isSearchFocused = it.isFocused }.focusRequester(searchFocusRequester)
                                         )
                                     }
                                     if (searchQuery.isNotEmpty()) {
                                         var isClearFocused by remember { mutableStateOf(false) }
                                         IconButton(
-                                            onClick = { searchQuery = "" },
+                                            onClick = { viewModel.searchQuery.value = "" },
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .onFocusChanged { isClearFocused = it.isFocused }
                                                 .background(if (isClearFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
                                                 .border(1.dp, if (isClearFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Clear,
-                                                contentDescription = "Clear",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            Icon(Icons.Filled.Clear, contentDescription = "Clear", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 }
                             }
                         }
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(38.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (!isSidebarVisible) {
                                 var isMenuFocused by remember { mutableStateOf(false) }
                                 IconButton(
@@ -797,36 +701,8 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     Icon(Icons.Default.Menu, "Expand", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                                 }
                             }
-                            Text(
-                                text = "JioTV Go",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-
-                            /*
-                            var isImportFocused by remember { mutableStateOf(false) }
-                            IconButton(
-                                onClick = { showImportDialog = true },
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .onFocusChanged { isImportFocused = it.isFocused }
-                                    .background(if (isImportFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
-                                    .border(1.dp, if (isImportFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FileDownload,
-                                    contentDescription = "Import Credentials",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            */
-
-
-
+                            Text("JioTV Go", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 8.dp))
                             Spacer(modifier = Modifier.weight(1f))
-
                             var isSearchIconFocused by remember { mutableStateOf(false) }
                             IconButton(
                                 onClick = { isSearchVisible = true },
@@ -836,24 +712,16 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     .background(if (isSearchIconFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
                                     .border(1.dp, if (isSearchIconFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                                Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                             }
                         }
                     }
                 }
             }
 
-            // Category/Language filter pills and Free/Catchup checkboxes below the title bar
             if (channels.isNotEmpty()) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -872,60 +740,40 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    // Compact Free checkbox
                     var freeFocused by remember { mutableStateOf(false) }
-                    val focusBorderColor = MaterialTheme.colorScheme.primary
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .onFocusChanged { freeFocused = it.isFocused }
-                            .border(
-                                2.dp,
-                                if (freeFocused) focusBorderColor else Color.Transparent,
-                                RoundedCornerShape(8.dp)
-                            )
+                            .border(2.dp, if (freeFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
                             .clickable {
-                                freeOnly = !freeOnly
-                                prefManager.myPrefs.freeOnly = freeOnly
+                                val newVal = !freeOnly
+                                viewModel.freeOnly.value = newVal
+                                prefManager.myPrefs.freeOnly = newVal
                                 prefManager.savePreferences()
                             }
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        CompositionLocalProvider(
-                            androidx.compose.foundation.LocalOverscrollConfiguration provides null
-                        ) {
+                        CompositionLocalProvider(LocalOverscrollFactory provides null) {
                             Checkbox(
                                 checked = freeOnly,
                                 onCheckedChange = { checked ->
-                                    freeOnly = checked
+                                    viewModel.freeOnly.value = checked
                                     prefManager.myPrefs.freeOnly = checked
                                     prefManager.savePreferences()
                                 },
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        Text(
-                            text = "Free",
-                            style = TextStyle(
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        )
+                        Text("Free", style = TextStyle(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface))
                     }
 
-                    // Compact Catchup checkbox
                     var catchupFocused by remember { mutableStateOf(false) }
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier
                             .onFocusChanged { catchupFocused = it.isFocused }
-                            .border(
-                                2.dp,
-                                if (catchupFocused) focusBorderColor else Color.Transparent,
-                                RoundedCornerShape(8.dp)
-                            )
+                            .border(2.dp, if (catchupFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
                             .clickable {
                                 freeJioCatchup = !freeJioCatchup
                                 prefManager.myPrefs.freeJioCatchup = freeJioCatchup
@@ -933,9 +781,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             }
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        CompositionLocalProvider(
-                            LocalMinimumInteractiveComponentSize provides 0.dp
-                        ) {
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                             Checkbox(
                                 checked = freeJioCatchup,
                                 onCheckedChange = { checked ->
@@ -946,35 +792,20 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        Text(
-                            text = "Catchup",
-                            style = TextStyle(
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        )
+                        Text("Catchup", style = TextStyle(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface))
                     }
                 }
             }
 
-            // Channel count / status
             if (channels.isNotEmpty() && !isLoading) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "${filteredChannels.size} channels",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
+                    Text("${filteredChannels.size} channels", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
                 }
             }
 
-            // --- CHANNEL CONTENT GRID ---
             when {
                 isLoading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -982,11 +813,7 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                             if (errorMessage != null) {
                                 Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = errorMessage!!,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    fontSize = 12.sp
-                                )
+                                Text(errorMessage!!, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp)
                             }
                         }
                     }
@@ -995,40 +822,22 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                             Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(32.dp)
-                                )
+                                Icon(Icons.Default.Star, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "No favorites yet",
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
+                            Text("No favorites yet", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Long-press any channel on Jio to add it to your favorites.",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center
-                            )
+                            Text("Long-press any channel on Jio to add it to your favorites.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
                     }
                 }
                 errorMessage != null && channels.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = errorMessage!!, color = MaterialTheme.colorScheme.onBackground)
+                            Text(errorMessage!!, color = MaterialTheme.colorScheme.onBackground)
                             Spacer(modifier = Modifier.height(16.dp))
                             var isRetryFocused by remember { mutableStateOf(false) }
                             Button(
@@ -1036,22 +845,19 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                                     scope.launch {
                                         isLoading = true
                                         try {
-                                            LogCollector.log("Omni: Retrying channel fetch from server: ${currentServer.name}")
-                                            channels = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
+                                            val fetched = withContext(Dispatchers.IO) { repository.fetchChannels(port) }
+                                            channels = fetched
+                                            viewModel.setChannels(fetched)
                                             errorMessage = null
                                         } catch (e: Exception) {
                                             errorMessage = e.localizedMessage
-                                            LogCollector.logError("Omni: Retry failed", e)
                                         }
+                                        delay(100.milliseconds)
                                         isLoading = false
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isRetryFocused) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primary
-                                ),
-                                modifier = Modifier
-                                    .onFocusChanged { isRetryFocused = it.isFocused }
-                                    .border(1.dp, if (isRetryFocused) MaterialTheme.colorScheme.primary else Color.Transparent, ButtonDefaults.shape)
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isRetryFocused) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.primary),
+                                modifier = Modifier.onFocusChanged { isRetryFocused = it.isFocused }.border(1.dp, if (isRetryFocused) MaterialTheme.colorScheme.primary else Color.Transparent, ButtonDefaults.shape)
                             ) {
                                 Text("Retry", color = if (isRetryFocused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary)
                             }
@@ -1060,73 +866,45 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 }
                 filteredChannels.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "No channels match the current filter or search.",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            fontSize = 14.sp
-                        )
+                        Text("No channels match the current filter or search.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp)
                     }
                 }
                 else -> {
-                    val currentFavorites = remember(favoriteRefreshTick) {
-                        favoritesStore.load().map { it.name }.toSet()
-                    }
-
+                    val currentFavorites = remember(favoriteRefreshTick) { favoritesStore.load().map { it.name }.toSet() }
                     LazyVerticalGrid(
-                        columns = if (gridColumnCount > 0) {
-                            GridCells.Fixed(gridColumnCount)
-                        } else {
-                            GridCells.Adaptive(minSize = if (isTv) 112.dp else 100.dp)
-                        },
-                        contentPadding = PaddingValues(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        columns = if (gridColumnCount > 0) GridCells.Fixed(gridColumnCount) else GridCells.Adaptive(minSize = if (isTv) 112.dp else 100.dp),
+                        contentPadding = PaddingValues(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         itemsIndexed(filteredChannels) { index, channel ->
                             val isFav = currentFavorites.contains(channel.name)
                             OmniChannelGridItem(
-                                channel = channel,
-                                isFavorite = isFav,
-                                modifier = if (index == 0) Modifier.focusRequester(
-                                    firstChannelFocusRequester
-                                ) else Modifier,
+                                channel = channel, isFavorite = isFav,
+                                modifier = if (index == 0) Modifier.focusRequester(firstChannelFocusRequester) else Modifier,
                                 onSelected = {
                                     prefManager.myPrefs.currChannelName = channel.name
-                                    prefManager.myPrefs.currChannelUrl =
-                                        channel.url ?: channel.m3u8Url ?: channel.mpdUrl
+                                    prefManager.myPrefs.currChannelUrl = channel.url ?: channel.m3u8Url ?: channel.mpdUrl
                                     prefManager.savePreferences()
                                     if (freeJioCatchup) {
                                         catchupChannelTarget = channel
                                     } else {
-                                        OmniDataManager.currentChannelList =
-                                            filteredChannels
+                                        OmniDataManager.currentChannelList = filteredChannels
                                         if (PlayerCommandBus.isInPipMode) {
-                                            try {
-                                                PlayerCommandBus.requestClosePip()
-                                            } catch (_: Exception) {
-                                            }
+                                            try { PlayerCommandBus.requestClosePip() } catch (_: Exception) {}
                                         }
-                                        val intent =
-                                            Intent(context, OmniPlayerActivity::class.java).apply {
-                                                putExtra("channel_index", index)
-                                            }
+                                        val intent = Intent(context, OmniPlayerActivity::class.java).apply { putExtra("channel_index", index) }
                                         context.startActivity(intent)
                                     }
                                 },
                                 onLongClick = {
-                                    val isFav = favoritesStore.load().any { it.name == channel.name }
-
-                                    if (isFav) {
+                                    val favStatus = favoritesStore.load().any { it.name == channel.name }
+                                    if (favStatus) {
                                         favoritesStore.remove(channel.name ?: "")
                                         Toast.makeText(context, "${channel.name} - removed from Favorites", Toast.LENGTH_SHORT).show()
                                     } else {
                                         favoritesStore.add(channel)
                                         Toast.makeText(context, "${channel.name} - added to Favorites", Toast.LENGTH_SHORT).show()
                                     }
-
-                                    if (currentServer.url == FAVORITES_SERVER_URL) {
-                                        favoriteRefreshTick++
-                                    }
+                                    if (currentServer.url == FAVORITES_SERVER_URL) favoriteRefreshTick++
                                 }
                             )
                         }
@@ -1135,50 +913,39 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             }
         }
 
-        // Catchup overlay — must be inside the same Box to actually overlay the grid
         catchupChannelTarget?.let { target ->
             OmniCatchupOverlay(
-                channel = target,
-                localPORT = port,
-                onClose = { catchupChannelTarget = null },
-                context = context,
-                preferenceManager = prefManager,
+                channel = target, localPORT = port, onClose = { catchupChannelTarget = null }, context = context, preferenceManager = prefManager,
                 onPlayChannel = { resolvedChannel ->
                     OmniDataManager.currentChannelList = listOf(resolvedChannel)
                     if (PlayerCommandBus.isInPipMode) {
-                        try {
-                            PlayerCommandBus.requestClosePip()
-                        } catch (_: Exception) {}
+                        try { PlayerCommandBus.requestClosePip() } catch (_: Exception) {}
                     }
-                    val intent = Intent(context, OmniPlayerActivity::class.java).apply {
-                        putExtra("channel_index", 0)
-                    }
+                    val intent = Intent(context, OmniPlayerActivity::class.java).apply { putExtra("channel_index", 0) }
                     context.startActivity(intent)
                 },
                 filteredChannels = filteredChannels
             )
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+        )
     }
 
-    // Category Filter Dialog
     if (showCategoryDialog) {
-        val categoriesList = remember(channels) {
-            channels.mapNotNull { it.group }.distinct().sorted()
-        }
+        val categoriesList = remember(channels) { channels.mapNotNull { it.group }.distinct().sorted() }
         MultiSelectFilterDialog(
-            title = "Categories",
-            options = categoriesList,
-            selectedOptions = selectedCategories,
+            title = "Categories", options = categoriesList, selectedOptions = selectedCategories,
             onDismiss = { showCategoryDialog = false },
             onConfirm = {
-                selectedCategories = it
+                viewModel.selectedCategories.value = it
                 prefManager.myPrefs.omniSelectedCategories = gson.toJson(it)
                 prefManager.savePreferences()
                 showCategoryDialog = false
             },
             onReset = {
-                // Clear the selections and save
-                selectedCategories = emptySet()
+                viewModel.selectedCategories.value = emptySet()
                 prefManager.myPrefs.omniSelectedCategories = "[]"
                 prefManager.savePreferences()
                 showCategoryDialog = false
@@ -1186,7 +953,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         )
     }
 
-    // Language Filter Dialog
     if (showLanguageDialog) {
         val defaultLangs = listOf("Hindi", "English", "Tamil", "Telugu", "Malayalam", "Kannada", "Bengali", "Marathi", "Gujarati", "Punjabi", "Urdu", "Odia", "Assamese")
         val availableLangs = remember(channels) {
@@ -1194,44 +960,37 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             (detected + defaultLangs).filter { it.isNotEmpty() }.distinct().sorted()
         }
         MultiSelectFilterDialog(
-            title = "Languages",
-            options = availableLangs,
-            selectedOptions = selectedLanguages,
+            title = "Languages", options = availableLangs, selectedOptions = selectedLanguages,
             onDismiss = { showLanguageDialog = false },
             onConfirm = {
-                selectedLanguages = it
+                viewModel.selectedLanguages.value = it
                 prefManager.myPrefs.omniSelectedLanguages = gson.toJson(it)
                 prefManager.savePreferences()
                 showLanguageDialog = false
             },
             onReset = {
-                selectedLanguages = emptySet()
+                viewModel.selectedLanguages.value = emptySet()
                 prefManager.myPrefs.omniSelectedLanguages = "[]"
                 prefManager.savePreferences()
                 showLanguageDialog = false
-            }  )
+            }
+        )
     }
 
     if (showGridColumnDialog) {
-        val maxCols = if (isTv) 12 else 12
+        val maxCols = 12
         val options = listOf("Auto") + (2..maxCols).map { it.toString() }
         val currentSelection = if (gridColumnCount <= 0) "Auto" else gridColumnCount.toString()
-
         MultiSelectFilterDialog(
-            title = "Grid Columns",
-            options = options,
-            selectedOptions = setOf(currentSelection),
-            singleSelect = true,
+            title = "Grid Columns", options = options, selectedOptions = setOf(currentSelection), singleSelect = true,
             onDismiss = { showGridColumnDialog = false },
             onConfirm = { selected ->
                 val selectedStr = selected.firstOrNull() ?: "Auto"
                 val newCount = if (selectedStr == "Auto") 0 else selectedStr.toIntOrNull() ?: 0
-
                 gridColumnCount = newCount
                 prefManager.myPrefs.omniGridColumnCount = newCount
                 prefManager.savePreferences()
                 settingsUpdateTrigger++
-
                 showGridColumnDialog = false
             }
         )
@@ -1246,7 +1005,6 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
                 prefManager.myPrefs.omniAutoOpenServer = selectedServer
                 prefManager.savePreferences()
                 settingsUpdateTrigger++
-                LogCollector.log("Omni: Auto Open Server set to $selectedServer")
                 showAutoOpenServerDialog = false
             }
         )
@@ -1257,16 +1015,12 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
             currentPackage = prefManager.myPrefs.iptvAppPackageName,
             onDismiss = { showDefaultUiDialog = false },
             onSelect = { pkg, label ->
-                // Same three preferences AppListActivity writes, so the picker in Settings
-                // and this one stay interchangeable.
                 prefManager.myPrefs.iptvAppPackageName = pkg
                 prefManager.myPrefs.iptvAppName = label
                 prefManager.myPrefs.iptvAppLaunchActivity = ""
                 prefManager.savePreferences()
-
                 defaultUiLabel = omniDefaultUiLabel(pkg, label)
                 settingsUpdateTrigger++
-                LogCollector.log("Omni: Default UI set to $label ($pkg)")
                 Toast.makeText(context, "Default UI: $label - applies on next app start", Toast.LENGTH_SHORT).show()
                 showDefaultUiDialog = false
             }
@@ -1289,20 +1043,216 @@ fun OmniMainScreen(context: Context, onNavigate: (String) -> Unit) {
         )
     }
 
-
     if (showImportDialog) {
-        OmniImportCredentialsDialog(
-            context = context,
-            onDismiss = { showImportDialog = false }
-        )
+        OmniImportCredentialsDialog(context = context, onDismiss = { showImportDialog = false })
     }
-
-
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Compact channel grid item
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
+@SuppressLint("ConfigurationScreenWidthHeight")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OmniCatchupOverlay(
+    channel: OmniChannel,
+    localPORT: Int,
+    onClose: () -> Unit,
+    context: Context,
+    preferenceManager: SkySharedPref,
+    onPlayChannel: (OmniChannel) -> Unit,
+    filteredChannels: List<OmniChannel>
+) {
+    var selectedOffset by remember { mutableIntStateOf(0) }
+    var loading by remember { mutableStateOf(true) }
+    var epgList by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var resolvingProgramSrno by remember { mutableStateOf<Long?>(null) }
+
+    val coroutineScope = rememberCoroutineScope()
+    val initialFocusRequester = remember { FocusRequester() }
+
+    BackHandler { onClose() }
+
+    LaunchedEffect(selectedOffset, channel.id) {
+        loading = true
+        errorMsg = null
+        try {
+            withContext(Dispatchers.IO) {
+                val channelId = channel.id ?: ""
+                val urlString = "http://127.0.0.1:$localPORT/epg/$channelId/$selectedOffset"
+                val connection = URL(urlString).openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+
+                val response = connection.inputStream.reader().use { reader ->
+                    Gson().fromJson(reader, EpgResponse::class.java)
+                }
+
+                val currentTime = System.currentTimeMillis()
+                val parsedEpg = response.epg.map { program ->
+                    val start = if (program.startEpoch < 100000000000L) program.startEpoch * 1000 else program.startEpoch
+                    val end = if (program.endEpoch < 100000000000L) program.endEpoch * 1000 else program.endEpoch
+                    program.copy(startEpoch = start, endEpoch = end)
+                }
+                val pastAndLive = parsedEpg.filter { it.startEpoch <= currentTime }
+                var finalEpg = if (selectedOffset == 0) {
+                    val liveShow = pastAndLive.find { currentTime >= it.startEpoch && currentTime <= it.endEpoch }
+                    if (liveShow != null) {
+                        val otherShows = pastAndLive.filter { it.srno != liveShow.srno }.reversed()
+                        listOf(liveShow) + otherShows
+                    } else {
+                        val liveTvProgram = EpgProgram(
+                            srno = -1L, showId = "live_fallback", showtime = "LIVE", showname = "LIVE TV",
+                            description = "Watch Live Stream", duration = 0, endtime = "", channel_name = channel.name ?: "",
+                            episodeThumbnail = "", episodePoster = "", startEpoch = System.currentTimeMillis() - 1000, endEpoch = System.currentTimeMillis() + 3600 * 1000
+                        )
+                        listOf(liveTvProgram) + pastAndLive.reversed()
+                    }
+                } else {
+                    pastAndLive.reversed()
+                }
+
+                if (finalEpg.isEmpty()) {
+                    finalEpg = listOf(
+                        EpgProgram(
+                            srno = -1L, showId = "live_fallback", showtime = "LIVE", showname = "LIVE TV",
+                            description = "Watch Live Stream", duration = 0, endtime = "", channel_name = channel.name ?: "",
+                            episodeThumbnail = "", episodePoster = "", startEpoch = System.currentTimeMillis() - 1000, endEpoch = System.currentTimeMillis() + 3600 * 1000
+                        )
+                    )
+                }
+
+                withContext(Dispatchers.Main) {
+                    epgList = finalEpg
+                    loading = false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("OmniCatchup", "Error fetching EPG", e)
+            val fallbackLive = EpgProgram(
+                srno = -1L, showId = "live_fallback", showtime = "LIVE", showname = "LIVE TV",
+                description = "Watch Live Stream (EPG unavailable)", duration = 0, endtime = "", channel_name = channel.name ?: "",
+                episodeThumbnail = "", episodePoster = "", startEpoch = System.currentTimeMillis() - 1000, endEpoch = System.currentTimeMillis() + 3600 * 1000
+            )
+            withContext(Dispatchers.Main) {
+                epgList = listOf(fallbackLive)
+                errorMsg = null
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(100)
+        try { initialFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    val dayOffsets = (0 downTo -7).toList()
+    val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+    val todayCal = Calendar.getInstance()
+    val isTv = LocalConfiguration.current.screenWidthDp >= 600
+
+    Box(
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).zIndex(100f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}.focusGroup()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                var isBackFocused by remember { mutableStateOf(false) }
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(36.dp).focusRequester(initialFocusRequester).onFocusChanged { isBackFocused = it.isFocused }.background(if (isBackFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape).border(1.dp, if (isBackFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                AsyncImage(model = channel.logo ?: "", contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Fit)
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = channel.name ?: "", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(text = "Catchup Guide", color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f), fontSize = 11.sp)
+                }
+            }
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(dayOffsets) { offset ->
+                    val cal = todayCal.clone() as Calendar
+                    cal.add(Calendar.DAY_OF_YEAR, offset)
+                    val label = when (offset) {
+                        0 -> "Today"
+                        -1 -> "Yesterday"
+                        else -> dateFormat.format(cal.time)
+                    }
+                    val isSelected = offset == selectedOffset
+                    var isFocused by remember { mutableStateOf(false) }
+                    FilterChip(
+                        selected = isSelected, onClick = { selectedOffset = offset }, label = { Text(label, fontSize = 12.sp) }, shape = RoundedCornerShape(8.dp), modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+                        border = FilterChipDefaults.filterChipBorder(enabled = true, selected = isSelected, borderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, selectedBorderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, borderWidth = if (isFocused) 2.dp else 0.dp, selectedBorderWidth = if (isFocused) 2.dp else 0.dp),
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary, containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+            when {
+                loading -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
+                errorMsg != null -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) { Text(errorMsg!!, color = MaterialTheme.colorScheme.error, fontSize = 14.sp) }
+                epgList.isEmpty() -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) { Text("No shows available for this day", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp) }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = if (isTv) 320.dp else 280.dp), modifier = Modifier.fillMaxSize().weight(1f), contentPadding = PaddingValues(8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(epgList) { _, program ->
+                            val currentTime = System.currentTimeMillis()
+                            val isLive = currentTime >= program.startEpoch && currentTime <= program.endEpoch
+                            OmniCatchupTile(
+                                program = program, isLive = isLive, isTv = isTv, localPORT = localPORT, isResolving = (resolvingProgramSrno == program.srno),
+                                onClick = {
+                                    if (isLive) {
+                                        onPlayChannel(channel)
+                                    } else {
+                                        if (resolvingProgramSrno != null) return@OmniCatchupTile
+                                        resolvingProgramSrno = program.srno
+                                        coroutineScope.launch {
+                                            val videoUrl = "http://127.0.0.1:$localPORT/catchup/render/${channel.id}?start=${program.startEpoch}&end=${program.endEpoch}&srno=${program.srno}"
+                                            val resolved = resolveCatchupStream(context, videoUrl)
+                                            resolvingProgramSrno = null
+                                            if (resolved != null) {
+                                                val catchupChannel = OmniChannel(
+                                                    id = channel.id, name = "[Catchup] ${program.showname}", group = channel.group, logo = channel.logo,
+                                                    url = resolved.playUrl, m3u8Url = if (!resolved.playUrl.contains(".mpd")) resolved.playUrl else null, mpdUrl = if (resolved.playUrl.contains(".mpd")) resolved.playUrl else null,
+                                                    licenseUrl = resolved.licenseUrl, headers = (channel.headers ?: emptyMap()) + mapOf("catchup_web_url" to videoUrl)
+                                                )
+                                                onPlayChannel(catchupChannel)
+                                            } else {
+                                                val intent = Intent(context, WebPlayerActivity::class.java).apply {
+                                                    putExtra("startup_url", videoUrl)
+                                                    putExtra("target_channel_id", channel.id ?: "")
+                                                }
+                                                context.startActivity(intent)
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OmniChannelGridItem(
@@ -1315,7 +1265,7 @@ fun OmniChannelGridItem(
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (isFocused) 1.1f else 1.0f)
 
-    // --- State for tracking hardware key long presses ---
+
     val scope = rememberCoroutineScope()
     var keyPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var isLongPressHandled by remember { mutableStateOf(false) }
@@ -1328,38 +1278,38 @@ fun OmniChannelGridItem(
             .clip(RoundedCornerShape(8.dp))
             .background(if (isFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent)
             .border(2.dp, if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent, RoundedCornerShape(8.dp))
-            // Intercept hardware keys directly for the emulator/D-pad
+
             .onPreviewKeyEvent { event ->
                 val isActionKey = event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
                 if (isActionKey) {
                     when (event.type) {
                         KeyEventType.KeyDown -> {
-                            // If it's the first keydown, start the timer.
-                            // (We check null to ignore the repeating KeyDown spam while holding).
+
+
                             if (keyPressJob == null) {
                                 isLongPressHandled = false
                                 keyPressJob = scope.launch {
-                                    kotlinx.coroutines.delay(500) // 500ms long press threshold
+                                    kotlinx.coroutines.delay(500)
                                     isLongPressHandled = true
                                     onLongClick()
                                 }
                             }
-                            return@onPreviewKeyEvent true // Consume the event
+                            return@onPreviewKeyEvent true
                         }
                         KeyEventType.KeyUp -> {
                             keyPressJob?.cancel()
                             keyPressJob = null
                             if (!isLongPressHandled) {
-                                onSelected() // Trigger normal click if released before timer finished
+                                onSelected()
                             }
                             isLongPressHandled = false
-                            return@onPreviewKeyEvent true // Consume the event
+                            return@onPreviewKeyEvent true
                         }
                     }
                 }
                 false
             }
-            // Keep combinedClickable for native touch/mouse interactions
+
             .combinedClickable(
                 onClick = onSelected,
                 onLongClick = onLongClick
@@ -1379,7 +1329,7 @@ fun OmniChannelGridItem(
                     contentScale = ContentScale.Fit
                 )
                 if (channel.name?.contains("HD", ignoreCase = true) == true) {
-                    // Dynamically adapts to light/dark mode based on your app's theme
+
                     val badgeBg = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
                     val redAccent = Color(0xFFD32F2F)
 
@@ -1397,33 +1347,33 @@ fun OmniChannelGridItem(
                             fontSize = 8.sp,
                             fontWeight = FontWeight.ExtraBold,
                             letterSpacing = 0.5.sp,
-                            // 1. Remove the hidden default font padding
+
                             style = androidx.compose.ui.text.TextStyle(
                                 platformStyle = androidx.compose.ui.text.PlatformTextStyle(
                                     includeFontPadding = false
                                 ),
-                                lineHeight = 8.sp // Force line height to match font size
+                                lineHeight = 8.sp
                             ),
-                            // 2. Reduce the explicit vertical padding
+
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
                 }
                 if (isFavorite) {
                     Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), // Adapts to light/dark mode
-                        shape = CircleShape, // A circular badge suits the star perfectly
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        shape = CircleShape,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(6.dp) // Matches the outer padding of the HD badge for visual balance
+                            .padding(6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Star,
                             contentDescription = "Favorite",
-                            tint = Color(0xFFFFB300), // A slightly deeper, richer Material Gold/Amber
+                            tint = Color(0xFFFFB300),
                             modifier = Modifier
-                                .padding(3.dp) // Gives the star some breathing room inside the circle
-                                .size(14.dp)   // Slightly scaled down to fit nicely in the badge
+                                .padding(3.dp)
+                                .size(14.dp)
                         )
                     }
                 }
@@ -1444,9 +1394,9 @@ fun OmniChannelGridItem(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Omni filter dropdown pill
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun OmniFilterPill(
     label: String,
@@ -1492,9 +1442,9 @@ fun OmniFilterPill(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Drawer section label
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun OmniDrawerSectionLabel(text: String) {
     Row(
@@ -1514,9 +1464,9 @@ fun OmniDrawerSectionLabel(text: String) {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Settings toggle row (Switch)
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun OmniSettingsToggle(
     label: String,
@@ -1554,9 +1504,9 @@ fun OmniSettingsToggle(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Settings action item (clickable button with icon)
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun OmniSettingsActionItem(
     label: String,
@@ -1592,9 +1542,9 @@ fun OmniSettingsActionItem(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Multi select filter dialog (Optimized for TV & Phone - No Scrolling)
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun MultiSelectFilterDialog(
     title: String,
@@ -1610,11 +1560,11 @@ fun MultiSelectFilterDialog(
     val screenWidth = configuration.screenWidthDp
     val screenHeight = configuration.screenHeightDp
 
-    // Dynamically calculate grid columns based on screen width & orientation
+
     val columnCount = when {
-        screenWidth >= 900 -> if (options.size > 12) 4 else 3   // Android TV / Large Tablets
-        screenWidth >= 600 -> if (options.size > 8) 3 else 2    // Foldables / Phone Landscape
-        else -> if (options.size > 6) 2 else 1                  // Phone Portrait
+        screenWidth >= 900 -> if (options.size > 12) 4 else 3
+        screenWidth >= 600 -> if (options.size > 8) 3 else 2
+        else -> if (options.size > 6) 2 else 1
     }
 
     val dialogWidthFraction = when {
@@ -1653,7 +1603,7 @@ fun MultiSelectFilterDialog(
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    // --- Compact Header ---
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1684,7 +1634,7 @@ fun MultiSelectFilterDialog(
                             }
                         }
 
-                        // Quick Select/Clear All (Only for multi-select)
+
                         if (!singleSelect && options.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 TextButton(
@@ -1711,7 +1661,7 @@ fun MultiSelectFilterDialog(
                         thickness = 1.dp
                     )
 
-                    // --- Compact Multi-Column Grid (Items fit without scrolling) ---
+
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columnCount),
                         modifier = Modifier
@@ -1751,7 +1701,7 @@ fun MultiSelectFilterDialog(
                         thickness = 1.dp
                     )
 
-                    // --- Compact Action Buttons ---
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
@@ -1829,7 +1779,7 @@ fun FilterItemRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-            // Icon / Indicator
+
             Box(
                 modifier = Modifier
                     .size(16.dp)
@@ -1921,305 +1871,6 @@ fun DialogActionButton(
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Catchup overlay
-// ──────────────────────────────────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun OmniCatchupOverlay(
-    channel: OmniChannel,
-    localPORT: Int,
-    onClose: () -> Unit,
-    context: Context,
-    preferenceManager: SkySharedPref,
-    onPlayChannel: (OmniChannel) -> Unit,
-    filteredChannels: List<OmniChannel>
-) {
-    var selectedOffset by remember { mutableIntStateOf(0) }
-    var loading by remember { mutableStateOf(true) }
-    var epgList by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var resolvingProgramSrno by remember { mutableStateOf<Long?>(null) }
-
-    val coroutineScope = rememberCoroutineScope()
-    val initialFocusRequester = remember { FocusRequester() }
-
-    BackHandler { onClose() }
-
-    LaunchedEffect(selectedOffset, channel.id) {
-        loading = true
-        errorMsg = null
-        try {
-            withContext(Dispatchers.IO) {
-                val channelId = channel.id ?: ""
-                val urlString = "http://127.0.0.1:$localPORT/epg/$channelId/$selectedOffset"
-                val connection = URL(urlString).openConnection() as HttpURLConnection
-                connection.connectTimeout = 5000
-                connection.readTimeout = 5000
-                val json = connection.inputStream.bufferedReader().use { it.readText() }
-                val response = Gson().fromJson(json, EpgResponse::class.java)
-
-                val currentTime = System.currentTimeMillis()
-                val parsedEpg = response.epg.map { program ->
-                    val start = if (program.startEpoch < 100000000000L) program.startEpoch * 1000 else program.startEpoch
-                    val end = if (program.endEpoch < 100000000000L) program.endEpoch * 1000 else program.endEpoch
-                    program.copy(startEpoch = start, endEpoch = end)
-                }
-                val pastAndLive = parsedEpg.filter { it.startEpoch <= currentTime }
-                var finalEpg = if (selectedOffset == 0) {
-                    val liveShow = pastAndLive.find { currentTime >= it.startEpoch && currentTime <= it.endEpoch }
-                    if (liveShow != null) {
-                        val otherShows = pastAndLive.filter { it.srno != liveShow.srno }.reversed()
-                        listOf(liveShow) + otherShows
-                    } else {
-                        val liveTvProgram = EpgProgram(
-                            srno = -1L,
-                            showId = "live_fallback",
-                            showtime = "LIVE",
-                            showname = "LIVE TV",
-                            description = "Watch Live Stream",
-                            duration = 0,
-                            endtime = "",
-                            channel_name = channel.name ?: "",
-                            episodeThumbnail = "",
-                            episodePoster = "",
-                            startEpoch = System.currentTimeMillis() - 1000,
-                            endEpoch = System.currentTimeMillis() + 3600 * 1000
-                        )
-                        listOf(liveTvProgram) + pastAndLive.reversed()
-                    }
-                } else {
-                    pastAndLive.reversed()
-                }
-
-                if (finalEpg.isEmpty()) {
-                    finalEpg = listOf(
-                        EpgProgram(
-                            srno = -1L,
-                            showId = "live_fallback",
-                            showtime = "LIVE",
-                            showname = "LIVE TV",
-                            description = "Watch Live Stream",
-                            duration = 0,
-                            endtime = "",
-                            channel_name = channel.name ?: "",
-                            episodeThumbnail = "",
-                            episodePoster = "",
-                            startEpoch = System.currentTimeMillis() - 1000,
-                            endEpoch = System.currentTimeMillis() + 3600 * 1000
-                        )
-                    )
-                }
-
-                withContext(Dispatchers.Main) {
-                    epgList = finalEpg
-                    loading = false
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("OmniCatchup", "Error fetching EPG", e)
-            val fallbackLive = EpgProgram(
-                srno = -1L,
-                showId = "live_fallback",
-                showtime = "LIVE",
-                showname = "LIVE TV",
-                description = "Watch Live Stream (EPG unavailable)",
-                duration = 0,
-                endtime = "",
-                channel_name = channel.name ?: "",
-                episodeThumbnail = "",
-                episodePoster = "",
-                startEpoch = System.currentTimeMillis() - 1000,
-                endEpoch = System.currentTimeMillis() + 3600 * 1000
-            )
-            withContext(Dispatchers.Main) {
-                epgList = listOf(fallbackLive)
-                errorMsg = null
-                loading = false
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        delay(150)
-        try {
-            initialFocusRequester.requestFocus()
-        } catch (_: Exception) {}
-    }
-
-    val dayOffsets = (0 downTo -7).toList()
-    val dateFormat = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
-    val todayCal = Calendar.getInstance()
-    val isTv = LocalConfiguration.current.screenWidthDp >= 600
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .zIndex(100f)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {}
-            .focusGroup()
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            ) {
-                var isBackFocused by remember { mutableStateOf(false) }
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .focusRequester(initialFocusRequester)
-                        .onFocusChanged { isBackFocused = it.isFocused }
-                        .background(if (isBackFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent, CircleShape)
-                        .border(1.dp, if (isBackFocused) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-                AsyncImage(
-                    model = channel.logo ?: "",
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)),
-                    contentScale = ContentScale.Fit
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = channel.name ?: "",
-                        color = MaterialTheme.colorScheme.onBackground,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "Catchup Guide",
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                items(dayOffsets) { offset ->
-                    val cal = todayCal.clone() as Calendar
-                    cal.add(Calendar.DAY_OF_YEAR, offset)
-                    val label = when (offset) {
-                        0 -> "Today"
-                        -1 -> "Yesterday"
-                        else -> dateFormat.format(cal.time)
-                    }
-                    val isSelected = offset == selectedOffset
-                    var isFocused by remember { mutableStateOf(false) }
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { selectedOffset = offset },
-                        label = { Text(label, fontSize = 12.sp) },
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = true,
-                            selected = isSelected,
-                            borderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                            selectedBorderColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-                            borderWidth = if (isFocused) 2.dp else 0.dp,
-                            selectedBorderWidth = if (isFocused) 2.dp else 0.dp
-                        ),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-            when {
-                loading -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-                errorMsg != null -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                    Text(errorMsg!!, color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
-                }
-                epgList.isEmpty() -> Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No shows available for this day", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp)
-                }
-                else -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = if (isTv) 320.dp else 280.dp),
-                        modifier = Modifier.fillMaxSize().weight(1f),
-                        contentPadding = PaddingValues(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        itemsIndexed(epgList) { _, program ->
-                            val currentTime = System.currentTimeMillis()
-                            val isLive = currentTime >= program.startEpoch && currentTime <= program.endEpoch
-                            OmniCatchupTile(
-                                program = program,
-                                isLive = isLive,
-                                isTv = isTv,
-                                localPORT = localPORT,
-                                isResolving = (resolvingProgramSrno == program.srno),
-                                onClick = {
-                                    if (isLive) {
-                                        onPlayChannel(channel)
-                                    } else {
-                                        if (resolvingProgramSrno != null) return@OmniCatchupTile
-                                        resolvingProgramSrno = program.srno
-                                        coroutineScope.launch {
-                                            val videoUrl = "http://127.0.0.1:$localPORT/catchup/render/${channel.id}?start=${program.startEpoch}&end=${program.endEpoch}&srno=${program.srno}"
-                                            val resolved = resolveCatchupStream(context, videoUrl)
-                                            resolvingProgramSrno = null
-                                            if (resolved != null) {
-                                                val catchupChannel = OmniChannel(
-                                                    id = channel.id,
-                                                    name = "[Catchup] ${program.showname}",
-                                                    group = channel.group,
-                                                    logo = channel.logo,
-                                                    url = resolved.playUrl,
-                                                    m3u8Url = if (!resolved.playUrl.contains(".mpd")) resolved.playUrl else null,
-                                                    mpdUrl = if (resolved.playUrl.contains(".mpd")) resolved.playUrl else null,
-                                                    licenseUrl = resolved.licenseUrl,
-                                                    headers = (channel.headers ?: emptyMap()) + mapOf("catchup_web_url" to videoUrl)
-                                                )
-                                                onPlayChannel(catchupChannel)
-                                            } else {
-                                                val intent = Intent(context, WebPlayerActivity::class.java).apply {
-                                                    putExtra("startup_url", videoUrl)
-                                                    putExtra("target_channel_id", channel.id ?: "")
-                                                }
-                                                context.startActivity(intent)
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @Composable
 fun OmniCatchupTile(
     program: EpgProgram,
@@ -2240,7 +1891,7 @@ fun OmniCatchupTile(
             .clickable(enabled = !isResolving, onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                             else MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.surface
         ),
         shape = shape,
         elevation = CardDefaults.cardElevation(defaultElevation = if (focused) 6.dp else 1.dp)
@@ -2368,9 +2019,9 @@ data class ResolvedCatchupStream(
     val licenseUrl: String?
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Import Credentials Dialog & Parser
-// ──────────────────────────────────────────────────────────────────────────────
+
+
+
 @Composable
 fun OmniImportCredentialsDialog(
     context: Context,
@@ -2496,13 +2147,13 @@ fun OmniImportCredentialsDialog(
                                     statusMessage = "Credentials saved! Restarting server..."
                                     Toast.makeText(context, "Credentials imported! Restarting server...", Toast.LENGTH_LONG).show()
 
-                                    // Stop binary service
+
                                     val stopIntent = Intent(context, BinaryService::class.java).apply {
                                         action = BinaryService.ACTION_STOP_BINARY
                                     }
                                     context.startService(stopIntent)
 
-                                    // Restart binary service after short delay
+
                                     scope.launch(Dispatchers.IO) {
                                         var waited = 0
                                         while (BinaryService.isRunning && waited < 4000) {
@@ -2650,7 +2301,7 @@ fun LogViewerDialog(onDismiss: () -> Unit, onCopy: () -> Unit, onClear: () -> Un
             }
         },
         confirmButton = {
-             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                 var isClearLogsFocused by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = {
@@ -2953,7 +2604,3 @@ fun AutoOpenServerDialog(
         titleContentColor = MaterialTheme.colorScheme.onBackground
     )
 }
-
-
-
-

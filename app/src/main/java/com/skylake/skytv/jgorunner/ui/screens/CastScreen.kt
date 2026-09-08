@@ -8,25 +8,17 @@ import android.net.LinkProperties
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularWavyProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,17 +31,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.skylake.skytv.jgorunner.R
 import com.skylake.skytv.jgorunner.core.execution.castMediaPlayer
-//import com.skylake.skytv.jgorunner.core.execution.crosscode
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.Inet4Address
-import com.google.android.gms.cast.framework.CastButtonFactory
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -58,23 +49,13 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
     val isSessionConnected = remember { mutableStateOf(false) }
     val castContext = CastContext.getSharedInstance(context)
     val customFontFamily = FontFamily(Font(R.font.chakrapetch_bold))
-    val prefManager = SkySharedPref.getInstance(context)
     val isProcessing = remember { mutableStateOf(false) }
 
     val sessionManagerListener = remember {
         object : SessionManagerListener<CastSession> {
-            override fun onSessionStarted(session: CastSession, sessionId: String) {
-                isSessionConnected.value = true
-            }
-
-            override fun onSessionEnded(session: CastSession, error: Int) {
-                isSessionConnected.value = false
-            }
-
-            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-                isSessionConnected.value = true
-            }
-
+            override fun onSessionStarted(session: CastSession, sessionId: String) { isSessionConnected.value = true }
+            override fun onSessionEnded(session: CastSession, error: Int) { isSessionConnected.value = false }
+            override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) { isSessionConnected.value = true }
             override fun onSessionStarting(session: CastSession) {}
             override fun onSessionStartFailed(session: CastSession, error: Int) {}
             override fun onSessionEnding(session: CastSession) {}
@@ -143,7 +124,6 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                                 offset = androidx.compose.ui.geometry.Offset(0f, 0f)
                             )
                         )
-
                     } else {
                         TextStyle.Default
                     },
@@ -155,8 +135,7 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                         MediaRouteButton(ctx).apply {
                             CastButtonFactory.setUpMediaRouteButton(ctx, this)
                         }
-                    },
-                    modifier = Modifier
+                    }
                 )
 
                 Text(
@@ -167,9 +146,7 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
 
                 if (isSessionConnected.value) {
                     Button(
-                        onClick = {
-                            castContext.sessionManager.endCurrentSession(true)
-                        },
+                        onClick = { castContext.sessionManager.endCurrentSession(true) },
                         modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
                         Icon(
@@ -186,17 +163,14 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         webViewClient = CustomWebViewClient(
-                            context,
-                            prefManager = prefManager,
+                            context = context,
                             isSessionConnected = { isSessionConnected.value },
                             onProcessingChange = { isProcessing.value = it }
                         )
                         loadUrl(viewURL)
                     }
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(0.dp)
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
@@ -205,102 +179,52 @@ fun CastScreen(context: Context, viewURL: String = "http://localhost:5350") {
 private class CustomWebViewClient(
     val context: Context,
     private val isSessionConnected: () -> Boolean,
-    private val prefManager: SkySharedPref,
     private val onProcessingChange: (Boolean) -> Unit,
 ) : WebViewClient() {
     private val TAG = "CustomWebViewClient"
     private val TAG2 = "CastScreen-JGX"
     private var initURL: String? = null
-    private var currentPlayId: String? = null
-    private var currentLogoUrl: String? = null
-    private var currentChannelName: String? = null
 
+    @RequiresApi(Build.VERSION_CODES.M)
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        return handleUrlLoading(view, request.url.toString())
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
     @Deprecated("Deprecated in Java")
-    override fun shouldOverrideUrlLoading(view: WebView, url: String ): Boolean {
+    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+        return handleUrlLoading(view, url)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    private fun handleUrlLoading(view: WebView, url: String): Boolean {
         if (url.contains("/play/")) {
-            initURL = view.url
-            Log.d(TAG, "Saving initURL: $initURL")
+            initURL = url
 
-            val playId = if (url.matches(".*\\/play\\/([^\\/]+).*".toRegex())) url.replace(
-                ".*\\/play\\/([^\\/]+).*".toRegex(), "$1"
-            ) else null
+            val playId = if (url.matches(".*\\/play\\/([^\\/]+).*".toRegex())) {
+                url.replace(".*\\/play\\/([^\\/]+).*".toRegex(), "$1")
+            } else null
 
-            Log.d(TAG, playId ?: "Play ID not found")
-
-            view.evaluateJavascript(
-                "(function() { " +
-                        "try { " +
-                        "    var channelCard = document.querySelector('a[href*=\"/play/$playId\"]'); " +
-                        "    if (channelCard) { " +
-                        "        var logoElement = channelCard.querySelector('img'); " +
-                        "        var nameElement = channelCard.querySelector('span'); " +
-                        "        var logoUrl = logoElement ? logoElement.getAttribute('src') : null; " +
-                        "        var channelName = nameElement ? nameElement.innerText : null; " +
-                        "        return JSON.stringify({playId: '$playId', logoUrl: logoUrl, channelName: channelName}); " +
-                        "    } else { " +
-                        "        return null; " +
-                        "    } " +
-                        "} catch (error) { " +
-                        "    return null; " +
-                        "} " +
-                        "})();"
-            ) { result: String? ->
-                if (result != null && result != "null") {
-                    try {
-                        val jsonString = result.replace("^\"|\"$".toRegex(), "").replace("\\\"", "\"")
-                        val jsonResult = JSONObject(jsonString)
-                        currentPlayId = jsonResult.getString("playId")
-                        currentLogoUrl = jsonResult.getString("logoUrl")
-                        currentChannelName = jsonResult.getString("channelName")
-
-                        Log.d(TAG, "Channel Clicked: $currentChannelName (Play ID: $currentPlayId)")
-
-                        saveRecentChannel(currentPlayId, currentLogoUrl, currentChannelName)
-                    } catch (e: JSONException) {
-                        Log.d(TAG, "JSON parsing error: ${e.message}")
-                    }
-                } else {
-                    Log.d(TAG, "No channel data extracted.")
-                }
-            }
-
-            val modifiedUrl = url.replace("/play/", "/live/mpd/").substringBefore("?")//+ ".m3u8"
-            Log.d(TAG2, "Modified URL for intent: $modifiedUrl")
-
+            val modifiedUrl = url.replace("/play/", "/live/mpd/").substringBefore("?")
             val newPlayerURL = formatVideoUrl(modifiedUrl)
 
             if (newPlayerURL != null) {
-                Log.d(TAG2, newPlayerURL)
-                // Cast Session Skipper
-//                 if (true) {
                 if (isSessionConnected()) {
-                    // CrossCode [FFMPEGKIT]
-//                    crosscode(
-//                        context = context,
-//                        videoUrl = newPlayerURL,
-//                        onProcessingStart = { onProcessingChange(true) },
-//                        onProcessingEnd = { onProcessingChange(false) }
-//                    )
+                    val ipAddress = getPublicJTVServerURL(context)
+                    val updatedUrl = newPlayerURL.replace("localhost", ipAddress).replace(".m3u8", ".mpd")
 
-                    // Skipping Direct Streaming - only few channels are working
+                    
+                    extractChannelDataAndCast(view, playId, updatedUrl)
+                } else {
+                    Toast.makeText(context, "Not connected to a Cast device", Toast.LENGTH_LONG).show()
 
-                     val ipAddress = getPublicJTVServerURL(context)
-                     fun ensureM3U8Suffix(url: String) = url.takeIf { it.endsWith(".m3u8") } ?: "$url.m3u8"
-                     val updatedUrl = ensureM3U8Suffix(newPlayerURL).replace("localhost", ipAddress)
-                     Log.d(TAG2, updatedUrl)
-                     castMediaPlayer(context, updatedUrl)
+                    val ipAddress = getPublicJTVServerURL(context)
+                    val updatedUrl = newPlayerURL.replace("localhost", ipAddress).replace(".m3u8", ".mpd")
 
-                 } else {
-                    Log.d(TAG,"Not connected to any device")
-                    Toast.makeText(
-                        context,
-                        "Not connected",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    extractChannelDataAndCast(view, playId, updatedUrl)
+                    Toast.makeText(context, "Not connected to a Cast device", Toast.LENGTH_LONG).show()
                 }
-
             }
-
             return true
         } else if (!url.contains("/play/") && !url.contains("/player/")) {
             initURL = url
@@ -309,89 +233,100 @@ private class CustomWebViewClient(
         return false
     }
 
-    private fun saveRecentChannel( playId: String?, logoUrl: String?, channelName: String?) {
-        prefManager.myPrefs.castChannelName = channelName
-        prefManager.myPrefs.castChannelLogo = logoUrl
-        Log.d(TAG,"$playId")
+    private fun extractChannelDataAndCast(view: WebView, playId: String?, castUrl: String) {
+        if (playId == null) {
+            
+            castMediaPlayer(context, castUrl, null, null)
+            return
+        }
+
+        val jsScript = """
+            (function() { 
+                try { 
+                    var channelCard = document.querySelector('a[href*="/play/$playId"]'); 
+                    if (channelCard) { 
+                        var logoElement = channelCard.querySelector('img'); 
+                        var nameElement = channelCard.querySelector('span'); 
+                        var logoUrl = logoElement ? logoElement.getAttribute('src') : null; 
+                        var channelName = nameElement ? nameElement.innerText : null; 
+                        return JSON.stringify({playId: '$playId', logoUrl: logoUrl, channelName: channelName}); 
+                    } 
+                    return null; 
+                } catch (error) { 
+                    return null; 
+                } 
+            })();
+        """.trimIndent()
+
+        view.evaluateJavascript(jsScript) { result: String? ->
+            var extractedName: String? = null
+            var extractedLogo: String? = null
+
+            if (result != null && result != "null") {
+                try {
+                    val jsonString = result.replace("^\"|\"$".toRegex(), "").replace("\\\"", "\"")
+                    val jsonResult = JSONObject(jsonString)
+                    extractedName = jsonResult.getString("channelName")
+                    extractedLogo = jsonResult.getString("logoUrl")
+
+                    Log.d(TAG, "Channel Clicked: $extractedName (Play ID: ${jsonResult.getString("playId")})")
+                } catch (e: JSONException) {
+                    Log.e(TAG, "JSON parsing error: ${e.message}")
+                }
+            }
+
+            
+            castMediaPlayer(context, castUrl, extractedName, extractedLogo)
+        }
     }
 
-    private fun formatVideoUrl(videoUrlbase: String): String? {
-        var videoUrl: String? = videoUrlbase
-        if (videoUrl.isNullOrEmpty()) {
-            return null
+    private fun formatVideoUrl(videoUrlbase: String?): String? {
+        if (videoUrlbase.isNullOrEmpty()) return null
+        return when {
+            videoUrlbase.contains("q=low") -> videoUrlbase.replace("/live/", "/live/low/")
+            videoUrlbase.contains("q=high") -> videoUrlbase.replace("/live/", "/live/high/")
+            videoUrlbase.contains("q=medium") -> videoUrlbase.replace("/live/", "/live/medium/")
+            else -> videoUrlbase
         }
-
-        if (videoUrl.contains("q=low")) {
-            videoUrl = videoUrl.replace("/live/", "/live/low/")
-        } else if (videoUrl.contains("q=high")) {
-            videoUrl = videoUrl.replace("/live/", "/live/high/")
-        } else if (videoUrl.contains("q=medium")) {
-            videoUrl = videoUrl.replace("/live/", "/live/medium/")
-        }
-
-        if (videoUrl.contains(".m3u8")) {
-            val questionMarkIndex = videoUrl.indexOf("?")
-            if (questionMarkIndex != -1) {
-                videoUrl = videoUrl.substring(0, questionMarkIndex)
-            }
-        }
-
-        videoUrl = videoUrl.replace("//.m3u8", ".m3u8")
-
-        return videoUrl
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        val script = "document.querySelector('.navbar').style.display = 'none';\n" +
-                "document.body.style.paddingTop = '5px';\n" +
-                "document.getElementsByTagName('html')[0].setAttribute('data-theme', 'dark');\n" +
-                "localStorage.setItem('theme', 'dark');"
-        view.evaluateJavascript(script, null)
+        val uiScript = """
+            document.querySelector('.navbar').style.display = 'none';
+            document.body.style.paddingTop = '5px';
+            document.getElementsByTagName('html')[0].setAttribute('data-theme', 'dark');
+            localStorage.setItem('theme', 'dark');
+            
+            var searchButton = document.getElementById('portexe-search-button'); 
+            var searchInput = document.getElementById('portexe-search-input'); 
+            if (searchButton && searchInput) { 
+                searchButton.parentNode.insertBefore(searchInput, searchButton.nextSibling); 
+            }
+        """.trimIndent()
 
-        view.loadUrl(
-            "javascript:(function() { " +
-                    "var searchButton = document.getElementById('portexe-search-button'); " +
-                    "var searchInput = document.getElementById('portexe-search-input'); " +
-                    "if (searchButton && searchInput) { " +
-                    "  searchButton.parentNode.insertBefore(searchInput, searchButton.nextSibling); " +
-                    "} " +
-                    "})()"
-        )
+        view.evaluateJavascript(uiScript, null)
     }
 
+    @RequiresApi(Build.VERSION_CODES.M)
     private fun getPublicJTVServerURL(context: Context): String {
-        val connectivityManager =
-            context.getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val activeNetwork = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            connectivityManager.activeNetwork
-        } else {
-            @Suppress("deprecation")
-            val networks = connectivityManager.allNetworks
-            if (networks.isNotEmpty()) networks[0] else null
-        }
+        val connectivityManager = context.getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = connectivityManager.activeNetwork
 
         if (activeNetwork != null) {
             val networkCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
 
-            // Check if the network is Wi-Fi or Ethernet
             if (networkCapabilities != null &&
                 (networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                        networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                        networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+            ) {
+                val linkProperties: LinkProperties? = connectivityManager.getLinkProperties(activeNetwork)
+                val ipAddress = linkProperties?.linkAddresses
+                    ?.firstOrNull { it.address is Inet4Address }
+                    ?.address?.hostAddress
 
-                val linkProperties: LinkProperties? =
-                    connectivityManager.getLinkProperties(activeNetwork)
-                val ipAddresses = linkProperties?.linkAddresses
-                    ?.filter { it.address is Inet4Address } // Filter for IPv4 addresses
-                    ?.map { it.address.hostAddress }
-                val ipAddress = ipAddresses?.firstOrNull() // Get the first IPv4 address
-
-                if (ipAddress != null)
-                    return ipAddress
+                if (ipAddress != null) return ipAddress
             }
-
         }
-
-        // No active network
         return "0.0.0.0"
     }
 }

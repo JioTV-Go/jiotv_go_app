@@ -40,6 +40,7 @@ object Helper {
         Log.d(TAG, "Setting operation mode to EXPERT")
 
         preferenceManager.myPrefs.iptvAppPackageName = ""
+        preferenceManager.myPrefs.operationUI = -1
         preferenceManager.myPrefs.operationMODE = EXPERT_MODE
         preferenceManager.savePreferences()
     }
@@ -49,6 +50,8 @@ object Helper {
         Toast.makeText(context, "Setting operation UI to Omni UI", Toast.LENGTH_SHORT).show()
         Log.d(TAG, "Setting operation UI to Omni UI")
 
+        preferenceManager.myPrefs.autoStartServer = true
+        preferenceManager.myPrefs.loginChk = true
         preferenceManager.myPrefs.iptvAppPackageName = "omni"
         preferenceManager.myPrefs.operationUI = 0
         preferenceManager.myPrefs.operationMODE = EASY_MODE

@@ -6,29 +6,46 @@ import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import java.io.File
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.ArrayDeque
+import java.util.concurrent.Executors
 
 object LogCollector {
-    private val logs = CopyOnWriteArrayList<String>()
+    
     private const val MAX_LOGS = 250
+    private val logs = ArrayDeque<String>(MAX_LOGS + 1)
     private var logFile: File? = null
+
+    
+    private val ioExecutor = Executors.newSingleThreadExecutor()
 
     fun init(context: Context) {
         if (logFile != null) return
         logFile = File(context.cacheDir, "app_logs.txt")
-        if (logFile?.exists() == true) {
-            try {
-                val fileContent = logFile!!.readText()
-                if (fileContent.isNotBlank()) {
-                    val lines = fileContent.split("\n").filter { it.isNotBlank() }
-                    logs.clear()
-                    logs.addAll(lines)
+
+        
+        ioExecutor.execute {
+            if (logFile?.exists() == true) {
+                try {
+                    val recentLogs = ArrayDeque<String>(MAX_LOGS)
+                    logFile!!.useLines { sequence ->
+                        sequence.filter { it.isNotBlank() }.forEach { line ->
+                            if (recentLogs.size == MAX_LOGS) {
+                                recentLogs.removeFirst() 
+                            }
+                            recentLogs.addLast(line)
+                        }
+                    }
+
+                    synchronized(logs) {
+                        logs.clear()
+                        logs.addAll(recentLogs)
+                    }
+                } catch (e: Exception) {
+                    Log.e("LogCollector", "Failed to read logs from file", e)
                 }
-            } catch (e: Exception) {
-                Log.e("LogCollector", "Failed to read logs from file", e)
             }
         }
-        
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             logError("FATAL UNCAUGHT EXCEPTION on thread ${thread.name}", throwable)
@@ -38,11 +55,19 @@ object LogCollector {
 
     fun log(message: String) {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault()).format(java.util.Date())
-        logs.add(0, "[$timestamp] $message")
-        if (logs.size > MAX_LOGS) {
-            logs.removeAt(logs.size - 1)
+        val formattedLog = "[$timestamp] $message"
+
+        synchronized(logs) {
+            logs.addFirst(formattedLog)
+            if (logs.size > MAX_LOGS) {
+                logs.removeLast() 
+            }
         }
-        saveToFile()
+
+        
+        ioExecutor.execute {
+            saveToFile()
+        }
     }
 
     fun logError(message: String, throwable: Throwable?) {
@@ -56,21 +81,29 @@ object LogCollector {
     private fun saveToFile() {
         val file = logFile ?: return
         try {
-            file.writeText(logs.joinToString("\n"))
+            
+            val logSnapshot = synchronized(logs) { logs.toList() }
+            file.writeText(logSnapshot.joinToString("\n"))
         } catch (e: Exception) {
             Log.e("LogCollector", "Failed to write logs to file", e)
         }
     }
 
     fun clear() {
-        logs.clear()
-        try {
-            logFile?.delete()
-        } catch (_: Exception) {}
+        synchronized(logs) {
+            logs.clear()
+        }
+        ioExecutor.execute {
+            try {
+                logFile?.delete()
+            } catch (_: Exception) {}
+        }
     }
 
     fun getLogs(): String {
-        return logs.joinToString("\n")
+        return synchronized(logs) {
+            logs.joinToString("\n")
+        }
     }
 
     fun copyToClipboard(context: Context) {

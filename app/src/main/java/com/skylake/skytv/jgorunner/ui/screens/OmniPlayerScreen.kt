@@ -35,6 +35,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -70,15 +72,12 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.skylake.skytv.jgorunner.activities.MainActivity
 import com.skylake.skytv.jgorunner.data.SkySharedPref
 import com.skylake.skytv.jgorunner.data.OmniFavoritesStore
 import com.skylake.skytv.jgorunner.ui.tvhome.OmniChannel
 import com.skylake.skytv.jgorunner.ui.components.OmniFilterDialog
 import com.skylake.skytv.jgorunner.utils.LogCollector
 import com.skylake.skytv.jgorunner.utils.DeviceUtils
-import com.skylake.skytv.jgorunner.utils.cleanupPlaybackLogic
-import com.skylake.skytv.jgorunner.utils.setupCustomPlaybackLogic
 import com.skylake.skytv.jgorunner.utils.SafeDns
 import com.skylake.skytv.jgorunner.utils.OmniMediaDrmCallback
 import okhttp3.OkHttpClient
@@ -87,6 +86,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.skylake.skytv.jgorunner.utils.normalizePlaybackUrl
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -94,9 +94,106 @@ import java.util.Calendar
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val OMNI_TAG = "OmniPlayerScreen"
-
-/** Controller / HUD auto-hide delay, measured from the last key press or focus move. */
 private const val CONTROLS_IDLE_TIMEOUT_MS = 5000L
+
+
+@SuppressLint("StaticFieldLeak")
+private var sharedOkHttpClient: OkHttpClient? = null
+
+private fun getSharedOkHttpClient(context: Context): OkHttpClient {
+    return sharedOkHttpClient ?: synchronized(Any()) {
+        sharedOkHttpClient ?: buildOkHttpClient(context.applicationContext).also { sharedOkHttpClient = it }
+    }
+}
+
+private fun buildOkHttpClient(context: Context): OkHttpClient {
+    val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
+
+    val builder = OkHttpClient.Builder()
+        .connectTimeout(35, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
+        .dns(SafeDns)
+        .followRedirects(false)
+        .followSslRedirects(false)
+
+    try {
+        val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(
+            @SuppressLint("CustomX509TrustManager")
+            object : javax.net.ssl.X509TrustManager {
+                @SuppressLint("TrustAllX509TrustManager")
+                override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                @SuppressLint("TrustAllX509TrustManager")
+                override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+            }
+        )
+        val sslContext = javax.net.ssl.SSLContext.getInstance("SSL").apply {
+            init(null, trustAllCerts, java.security.SecureRandom())
+        }
+        builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
+        builder.hostnameVerifier { _, _ -> true }
+    } catch (e: Exception) {
+        Log.e("OmniPlayerScreen", "Failed to configure trust-all SSL", e)
+    }
+
+    builder.addInterceptor { chain ->
+        var request = chain.request()
+        val url = request.url.toString()
+        val reqBuilder = request.newBuilder()
+
+        val jioUA = "JioTV/7.0.8 (Linux; Android 13; Pixel 7 Pro Build/TQ1A.221205.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.64 Mobile Safari/537.36"
+
+        if (url.contains("jio.com", true) || url.contains("jio.dev", true) || url.contains("webplay.fun", true) || url.contains("jiotv.jio.com", true)) {
+            if (request.header("User-Agent").isNullOrBlank()) reqBuilder.header("User-Agent", jioUA)
+            if (request.header("os").isNullOrBlank()) reqBuilder.header("os", "android")
+            if (request.header("devicetype").isNullOrBlank()) reqBuilder.header("devicetype", "phone")
+            if (request.header("uniqueId").isNullOrBlank()) reqBuilder.header("uniqueId", androidId)
+            if (request.header("deviceId").isNullOrBlank()) reqBuilder.header("deviceId", androidId)
+            if (request.header("appname").isNullOrBlank()) reqBuilder.header("appname", "com.jio.jiotv")
+            if (request.header("versionCode").isNullOrBlank()) reqBuilder.header("versionCode", "323")
+            if (request.header("X-Jio-Network-Type").isNullOrBlank()) reqBuilder.header("X-Jio-Network-Type", "WIFI")
+            if (request.header("X-Requested-With").isNullOrBlank()) reqBuilder.header("X-Requested-With", "com.jio.jiotv")
+            if (request.header("Referer").isNullOrBlank()) reqBuilder.header("Referer", "https://jiotv.jio.com/")
+        }
+
+        request = reqBuilder.build()
+
+        val referer = request.header("Referer")
+        val origin = request.header("Origin")
+        val userAgent = request.header("User-Agent")
+        val cookie = request.header("Cookie")
+        val xRequestedWith = request.header("X-Requested-With")
+
+        var response = chain.proceed(request)
+        var tryCount = 0
+        while (response.isRedirect && tryCount < 10) {
+            var newUrl = response.header("Location") ?: break
+            if (!newUrl.startsWith("http://", ignoreCase = true) && !newUrl.startsWith("https://", ignoreCase = true)) {
+                try {
+                    val baseHttpUrl = request.url
+                    val resolved = baseHttpUrl.resolve(newUrl)
+                    if (resolved != null) {
+                        newUrl = resolved.toString()
+                    }
+                } catch (_: java.lang.Exception) {}
+            }
+            response.close()
+
+            val newReqBuilder = request.newBuilder().url(newUrl)
+            if (!referer.isNullOrBlank()) newReqBuilder.header("Referer", referer)
+            if (!origin.isNullOrBlank()) newReqBuilder.header("Origin", origin)
+            if (!userAgent.isNullOrBlank()) newReqBuilder.header("User-Agent", userAgent)
+            if (!cookie.isNullOrBlank()) newReqBuilder.header("Cookie", cookie)
+            if (!xRequestedWith.isNullOrBlank()) newReqBuilder.header("X-Requested-With", xRequestedWith)
+            request = newReqBuilder.build()
+            response = chain.proceed(request)
+            tryCount++
+        }
+        response
+    }
+    return builder.build()
+}
+
 
 @RequiresApi(Build.VERSION_CODES.O)
 @OptIn(UnstableApi::class)
@@ -110,94 +207,8 @@ fun OmniPlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val okHttpClient = remember {
-        val androidId = android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: ""
-
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(35, TimeUnit.SECONDS)
-            .readTimeout(35, TimeUnit.SECONDS)
-            .dns(SafeDns)
-            .followRedirects(false)
-            .followSslRedirects(false)
-
-        try {
-            val trustAllCerts = arrayOf<javax.net.ssl.TrustManager>(
-                @SuppressLint("CustomX509TrustManager")
-                object : javax.net.ssl.X509TrustManager {
-                    @SuppressLint("TrustAllX509TrustManager")
-                    override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    @SuppressLint("TrustAllX509TrustManager")
-                    override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
-                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
-                }
-            )
-            val sslContext = javax.net.ssl.SSLContext.getInstance("SSL").apply {
-                init(null, trustAllCerts, java.security.SecureRandom())
-            }
-            builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as javax.net.ssl.X509TrustManager)
-            builder.hostnameVerifier { _, _ -> true }
-        } catch (e: Exception) {
-            Log.e("OmniPlayerScreen", "Failed to configure trust-all SSL", e)
-        }
-
-        builder.addInterceptor { chain ->
-            var request = chain.request()
-            val url = request.url.toString()
-            val reqBuilder = request.newBuilder()
-
-            val jioUA = "JioTV/7.0.8 (Linux; Android 13; Pixel 7 Pro Build/TQ1A.221205.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/110.0.5481.64 Mobile Safari/537.36"
-
-            if (url.contains("jio.com", true) || url.contains("jio.dev", true) || url.contains("webplay.fun", true) || url.contains("jiotv.jio.com", true)) {
-                if (request.header("User-Agent").isNullOrBlank()) reqBuilder.header("User-Agent", jioUA)
-                if (request.header("os").isNullOrBlank()) reqBuilder.header("os", "android")
-                if (request.header("devicetype").isNullOrBlank()) reqBuilder.header("devicetype", "phone")
-                if (request.header("uniqueId").isNullOrBlank()) reqBuilder.header("uniqueId", androidId)
-                if (request.header("deviceId").isNullOrBlank()) reqBuilder.header("deviceId", androidId)
-                if (request.header("appname").isNullOrBlank()) reqBuilder.header("appname", "com.jio.jiotv")
-                if (request.header("versionCode").isNullOrBlank()) reqBuilder.header("versionCode", "323")
-                if (request.header("X-Jio-Network-Type").isNullOrBlank()) reqBuilder.header("X-Jio-Network-Type", "WIFI")
-                if (request.header("X-Requested-With").isNullOrBlank()) reqBuilder.header("X-Requested-With", "com.jio.jiotv")
-                if (request.header("Origin").isNullOrBlank()) reqBuilder.header("Origin", "https://jiotv.jio.com")
-                if (request.header("Referer").isNullOrBlank()) reqBuilder.header("Referer", "https://jiotv.jio.com/")
-            }
-
-            request = reqBuilder.build()
-
-            val referer = request.header("Referer")
-            val origin = request.header("Origin")
-            val userAgent = request.header("User-Agent")
-            val cookie = request.header("Cookie")
-            val xRequestedWith = request.header("X-Requested-With")
-
-            var response = chain.proceed(request)
-            var tryCount = 0
-            while (response.isRedirect && tryCount < 10) {
-                var newUrl = response.header("Location") ?: break
-                if (!newUrl.startsWith("http://", ignoreCase = true) && !newUrl.startsWith("https://", ignoreCase = true)) {
-                    try {
-                        val baseHttpUrl = request.url
-                        val resolved = baseHttpUrl.resolve(newUrl)
-                        if (resolved != null) {
-                            newUrl = resolved.toString()
-                        }
-                    } catch (_: java.lang.Exception) {}
-                }
-                response.close()
-
-                val newReqBuilder = request.newBuilder().url(newUrl)
-                if (!referer.isNullOrBlank()) newReqBuilder.header("Referer", referer)
-                if (!origin.isNullOrBlank()) newReqBuilder.header("Origin", origin)
-                if (!userAgent.isNullOrBlank()) newReqBuilder.header("User-Agent", userAgent)
-                if (!cookie.isNullOrBlank()) newReqBuilder.header("Cookie", cookie)
-                if (!xRequestedWith.isNullOrBlank()) newReqBuilder.header("X-Requested-With", xRequestedWith)
-                request = newReqBuilder.build()
-                response = chain.proceed(request)
-                tryCount++
-            }
-            response
-        }
-            .build()
-    }
+    
+    val okHttpClient = remember { getSharedOkHttpClient(context) }
 
     var activeList by remember { mutableStateOf(channelList) }
     var currentIndex by remember(initialIndex) { mutableIntStateOf(initialIndex) }
@@ -214,30 +225,30 @@ fun OmniPlayerScreen(
     var showChannelPanel by remember { mutableStateOf(false) }
     var showSettingsPanel by remember { mutableStateOf(false) }
 
-    // Selected subtitle label ("Off" when none). Resets per channel (keyed on currentIndex).
+    
     var selectedSubtitleLabel by remember(currentIndex) { mutableStateOf("Off") }
-    // Selected audio-track label (null → auto/first). Resets per channel.
+    
     var selectedAudioLabel by remember(currentIndex) { mutableStateOf<String?>(null) }
-    // User-selected playback speed (resets to 1.0f on video/channel change).
+    
     var currentPlaybackSpeed by remember(currentIndex) { mutableFloatStateOf(1.0f) }
 
-    // Double-tap / dpad seek indicator (YouTube-style "+10s" / "-10s" flash).
+    
     var seekIndicatorForward by remember { mutableStateOf(true) }
     var seekIndicatorSeconds by remember { mutableIntStateOf(0) }
     var showSeekIndicator by remember { mutableStateOf(false) }
     var seekIndicatorJob by remember { mutableStateOf<Job?>(null) }
 
     var panelSelectedIndex by remember { mutableIntStateOf(currentIndex) }
-    // The transport controller (focusable buttons + seekbar).
+    
     var showController by remember { mutableStateOf(false) }
-    // Info-only channel HUD shown on TV while the controller is hidden.
+    
     var showHud by remember { mutableStateOf(false) }
-    // Bumped on every key press / focus move so the idle countdown restarts.
+    
     var controllerActivityTick by remember { mutableLongStateOf(0L) }
     var hudActivityTick by remember { mutableLongStateOf(0L) }
     var playerError by remember { mutableStateOf<String?>(null) }
 
-    // Player buffering state for loading indicator
+    
     var isBuffering by remember { mutableStateOf(true) }
 
     var numericBuffer by remember { mutableStateOf("") }
@@ -276,7 +287,7 @@ fun OmniPlayerScreen(
         ch.name?.contains("[Catchup]", ignoreCase = true) == true || ch.url?.contains("/catchup/") == true
     }
 
-    // --- Controller / HUD visibility --------------------------------------------------
+    
     /** Opens the controller (or keeps it open) and restarts its idle countdown. */
     fun openController() {
         showHud = false
@@ -350,7 +361,7 @@ fun OmniPlayerScreen(
                     override fun onPlayerError(error: PlaybackException) {
                         isBuffering = false
                         Log.e(OMNI_TAG, "ExoPlayer error: ${error.message}")
-                        com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Playback error (${error.errorCodeName} - ${error.message}) for channel: ${activeChannel?.name}", error)
+                        LogCollector.logError("OmniPlayer: Playback error (${error.errorCodeName} - ${error.message}) for channel: ${activeChannel?.name}", error)
 
                         val catchupWebUrl = activeChannel?.headers?.get("catchup_web_url")
                         val isCatchupStream = activeChannel?.name?.contains("[Catchup]", ignoreCase = true) == true &&
@@ -359,7 +370,7 @@ fun OmniPlayerScreen(
                         if (isCatchupStream) {
                             catchupRetryCount++
                             if (catchupRetryCount >= 3) {
-                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Catchup native playback failed 3 times. Redirecting to WebPlayer: $catchupWebUrl")
+                                LogCollector.log("OmniPlayer: Catchup native playback failed 3 times. Redirecting to WebPlayer: $catchupWebUrl")
                                 try {
                                     val intent = Intent(context, com.skylake.skytv.jgorunner.activities.WebPlayerActivity::class.java).apply {
                                         putExtra("startup_url", catchupWebUrl)
@@ -368,11 +379,11 @@ fun OmniPlayerScreen(
                                     context.startActivity(intent)
                                     (context as? Activity)?.finish()
                                 } catch (e: Exception) {
-                                    com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to fallback to WebPlayerActivity: ${e.message}", e)
+                                    LogCollector.logError("OmniPlayer: Failed to fallback to WebPlayerActivity: ${e.message}", e)
                                 }
                                 return
                             } else {
-                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Catchup failed $catchupRetryCount time(s), retrying...")
+                                LogCollector.log("OmniPlayer: Catchup failed $catchupRetryCount time(s), retrying...")
                                 prepare()
                                 play()
                                 return
@@ -382,10 +393,10 @@ fun OmniPlayerScreen(
                         if (useDrm) {
                             drmRetryCount++
                             if (drmRetryCount >= 2) {
-                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: DRM failed 2 times for ${activeChannel?.name}, falling back to HLS stream")
+                                LogCollector.log("OmniPlayer: DRM failed 2 times for ${activeChannel?.name}, falling back to HLS stream")
                                 useDrm = false
                             } else {
-                                com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: DRM failed $drmRetryCount time(s), retrying...")
+                                LogCollector.log("OmniPlayer: DRM failed $drmRetryCount time(s), retrying...")
                                 prepare()
                                 play()
                             }
@@ -398,7 +409,7 @@ fun OmniPlayerScreen(
                         isBuffering = (state == Player.STATE_BUFFERING)
                         if (state == Player.STATE_READY) {
                             playerError = null
-                            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Playback STATE_READY for channel: ${activeChannel?.name}")
+                            LogCollector.log("OmniPlayer: Playback STATE_READY for channel: ${activeChannel?.name}")
                         }
                     }
                 })
@@ -435,8 +446,8 @@ fun OmniPlayerScreen(
             preferenceManager.myPrefs.currChannelUrl = rawPlaybackUrl
             preferenceManager.savePreferences()
 
-            // Normalize playback URL using HelperUtils.normalizePlaybackUrl
-            var playbackUrl = com.skylake.skytv.jgorunner.utils.normalizePlaybackUrl(
+            
+            var playbackUrl = normalizePlaybackUrl(
                 context = context,
                 inputUrl = rawPlaybackUrl,
                 keepPlayEndpoint = false,
@@ -462,7 +473,7 @@ fun OmniPlayerScreen(
                 }
             }
 
-            // Force HLS when DRM is toggled off
+            
             if (!useDrm) {
                 resolvedLicenseUrl = null
                 if (playbackUrl.contains("/live/mpd/")) {
@@ -472,7 +483,7 @@ fun OmniPlayerScreen(
 
             val isDrm = !resolvedLicenseUrl.isNullOrBlank()
             val isDash = isDrm || playbackUrl.contains("/live/mpd/") || playbackUrl.contains(".mpd", ignoreCase = true)
-            com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayer: Preparing '${ch.name}' (DRM: $isDrm, DASH: $isDash, URL: $playbackUrl, License: $resolvedLicenseUrl)")
+            LogCollector.log("OmniPlayer: Preparing '${ch.name}' (DRM: $isDrm, DASH: $isDash, URL: $playbackUrl, License: $resolvedLicenseUrl)")
 
             val builder = MediaItem.Builder()
                 .setUri(playbackUrl.toUri())
@@ -525,12 +536,12 @@ fun OmniPlayerScreen(
             exoPlayer.setMediaSource(mediaSource)
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
-            // New channel is live: flash the info HUD on TV, surface the controls on touch.
+            
             if (isTv) flashHud() else openController()
         } catch (e: Exception) {
             isBuffering = false
             Log.e(OMNI_TAG, "Failed to prepare playback", e)
-            com.skylake.skytv.jgorunner.utils.LogCollector.logError("OmniPlayer: Failed to prepare playback for ${activeChannel?.name}", e)
+            LogCollector.logError("OmniPlayer: Failed to prepare playback for ${activeChannel?.name}", e)
             playerError = e.message ?: "Prepare Failed"
         }
     }
@@ -684,8 +695,8 @@ fun OmniPlayerScreen(
             showController -> showController = false
             else -> {
                 val act = context as? Activity
-                if (preferenceManager.myPrefs.enablePip && !com.skylake.skytv.jgorunner.utils.DeviceUtils.isTvDevice(context) && act != null) {
-                    com.skylake.skytv.jgorunner.utils.LogCollector.log("OmniPlayerScreen: BackHandler -> entering PiP")
+                if (preferenceManager.myPrefs.enablePip && !DeviceUtils.isTvDevice(context) && act != null) {
+                    LogCollector.log("OmniPlayerScreen: BackHandler -> entering PiP")
                     val pipController = com.skylake.skytv.jgorunner.services.player.PipController(act)
                     pipController.enterPipIfAllowed()
                 } else {
@@ -765,6 +776,30 @@ fun OmniPlayerScreen(
                         val hasSeekBar = isMovieOrVod && seekable
 
                         when (event.key) {
+                            Key.DirectionUp, Key.ChannelUp -> {
+                                if (panelOpen) return@onPreviewKeyEvent false
+                                if (showController && hasSeekBar) {
+                                    markControllerActivity()
+                                    return@onPreviewKeyEvent false
+                                }
+                                if (activeList.isNotEmpty()) {
+                                    currentIndex = (currentIndex + 1) % activeList.size
+                                    if (showController) markControllerActivity() else flashHud()
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                            Key.DirectionDown, Key.ChannelDown -> {
+                                if (panelOpen) return@onPreviewKeyEvent false
+                                if (showController && hasSeekBar) {
+                                    markControllerActivity()
+                                    return@onPreviewKeyEvent false
+                                }
+                                if (activeList.isNotEmpty()) {
+                                    currentIndex = (currentIndex - 1 + activeList.size) % activeList.size
+                                    if (showController) markControllerActivity() else flashHud()
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
                             Key.DirectionUp -> {
                                 if (panelOpen) return@onPreviewKeyEvent false
                                 if (showController && hasSeekBar) {
@@ -792,7 +827,7 @@ fun OmniPlayerScreen(
                             Key.DirectionLeft -> {
                                 if (isMovieOrVod) {
                                     if (panelOpen) return@onPreviewKeyEvent false
-                                    // VOD/Catchup: Scrub backward 10s
+                                    
                                     seekIndicatorForward = false
                                     seekIndicatorSeconds = 10
                                     showSeekIndicator = true
@@ -808,7 +843,7 @@ fun OmniPlayerScreen(
                                     openController()
                                     return@onPreviewKeyEvent true
                                 } else {
-                                    // LIVE TV LOGIC: Toggle Panels on Left
+                                    
                                     if (showController) {
                                         markControllerActivity()
                                         return@onPreviewKeyEvent false
@@ -819,7 +854,7 @@ fun OmniPlayerScreen(
                                     } else if (showChannelPanel) {
                                         showChannelPanel = false
                                     } else {
-                                        // Open left panel, hide others
+                                        
                                         showChannelPanel = true
                                         showController = false
                                         showHud = false
@@ -941,7 +976,7 @@ fun OmniPlayerScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = if (swipeVolumeValue == 0f) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                            imageVector = if (swipeVolumeValue == 0f) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
                             contentDescription = null,
                             tint = Color.Cyan,
                             modifier = Modifier.size(36.dp)
@@ -1484,7 +1519,7 @@ fun OmniPlayerHud(channel: OmniChannel?, currentIndex: Int) {
         val sdf = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
         while (true) {
             time = sdf.format(java.util.Date())
-           delay(1000.milliseconds)
+            delay(1000.milliseconds)
         }
     }
 
@@ -1579,7 +1614,7 @@ fun OverlayButton(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    // Scale animation to pop-out when focused via remote
+    
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.15f else 1.0f,
         animationSpec = tween(150),

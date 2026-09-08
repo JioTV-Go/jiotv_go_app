@@ -221,7 +221,8 @@ class MainActivity : FragmentActivity() {
 
         if (preferenceManager.myPrefs.operationMODE != 1) {
             if (preferenceManager.myPrefs.operationUI != 0 &&
-                preferenceManager.myPrefs.operationUI != 1
+                preferenceManager.myPrefs.operationUI != 1 &&
+                preferenceManager.myPrefs.operationUI != -1
             ) {
                 showOpUIDialog = true
             }

@@ -787,7 +787,6 @@ fun handleButton4Click(context: Context) {
 
 fun handleButton5Click(context: Context, onNavigate: (String) -> Unit) {
     onNavigate("Login")
-    Toast.makeText(context, "Pending Implementation", Toast.LENGTH_SHORT).show()
 }
 
 fun handleButton6Click(context: Context) {
@@ -807,7 +806,6 @@ fun handleButton6Click(context: Context) {
 
 fun handleButton7Click(context: Context, onNavigate: (String) -> Unit) {
     onNavigate("Zone")
-    Toast.makeText(context, "Pending Implementation", Toast.LENGTH_SHORT).show()
 }
 
 fun handleButton8Click(context: Context) {
