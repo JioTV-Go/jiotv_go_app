@@ -86,6 +86,8 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.skylake.skytv.jgorunner.utils.normalizePlaybackUrl
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -207,7 +209,15 @@ fun OmniPlayerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     val okHttpClient = remember { getSharedOkHttpClient(context) }
 
     var activeList by remember { mutableStateOf(channelList) }
@@ -557,8 +567,10 @@ fun OmniPlayerScreen(
         val resolvedHeight = if (maxHeight <= 0) Int.MAX_VALUE else maxHeight
         trackSelector.setParameters(
             trackSelector.buildUponParameters()
-                .setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
                 .setForceHighestSupportedBitrate(true)
+//            trackSelector.buildUponParameters()
+//                .setMaxVideoSize(Int.MAX_VALUE, resolvedHeight)
+//                .setForceHighestSupportedBitrate(true)
         )
     }
 
@@ -1783,7 +1795,13 @@ fun OmniSidePanel(
                             contentAlignment = Alignment.Center
                         ) {
                             AsyncImage(
-                                model = channel.logo,
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(channel.logo)
+                                    .size(coil.size.Size(128, 128))
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .crossfade(false)
+                                    .build(),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit
