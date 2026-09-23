@@ -348,7 +348,15 @@ class MainActivity : FragmentActivity() {
                         addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY)
                         addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                     }
-                startActivity(intentSettings)
+                try {
+                    startActivity(intentSettings)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    Log.e(
+                        "JTVGo::MainActivity",
+                        "Battery optimization intent missing on TV",
+                        e
+                    )
+                }
             }
         }
 
