@@ -1,16 +1,22 @@
-<h1 align="center">
-  <img src="https://i.imgur.com/Nn0IAkK.png" alt="JTV-GO Icon" width="150"><br>
-  📺 JTV-GO Server
-</h1>
+<div align="center">
+  <a href="https://docs.langchain.com/oss/python/langchain/overview">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://i.ibb.co/WvCZ3DMG/logo-dark.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://i.ibb.co/p67PBdZd/logo-light.png">
+      <img alt="LangChain Logo" src=".github/images/logo-dark.svg" width="50%">
+    </picture>
+  </a>
+</div>
 
-<p align="center">
-  <b>Access JioTV Go — streamlined, lightweight, and blazing fast!</b>
-</p>
+<div align="center">
+  <h3>Access JioTV Go — streamlined, lightweight, and blazing fast!</h3>
+</div>
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.2.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/build-stable-brightgreen" alt="Build Status">
   <img src="https://img.shields.io/badge/license-MIT-F94877" alt="License">
+  <a href="https://t.me/jiotv_go_chat" target="_blank"><img src="https://img.shields.io/badge/Telegram- @jiotv_go_chat-2CA5E0?style=flat&logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 <p align="center">
